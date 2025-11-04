@@ -1,3 +1,4 @@
+//this file is app/%28routes%29/dashboard/_components/HistoryTable.tsx
 import React from "react";
 import {
   Table,
@@ -34,7 +35,7 @@ function HistoryTable({historyList}:Props){
                 </TableHeader>
                 <TableBody>
                     {historyList.map((record:SessionDetail,index:number)=>(
-                        <TableRow>
+                        <TableRow key={record.sessionId}>
                             <TableCell className="font-medium">{record.selectedBathusi.specialist}</TableCell>
                             <TableCell>{record.notes}</TableCell>
                             <TableCell>{moment(new Date(record.createdOn)).fromNow() }</TableCell>

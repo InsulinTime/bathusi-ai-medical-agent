@@ -1,3 +1,5 @@
+//this file is config/OpenAiModel.tsx
+
 import OpenAI from "openai"
 
 export const openai = new OpenAI({

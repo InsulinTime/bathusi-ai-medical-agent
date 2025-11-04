@@ -70,8 +70,8 @@ function AddNewSessionDialog() {
 
     return (
         <Dialog>
-            <DialogTrigger>
-                <Button className='mt-3' disabled={!paidUser && historyList?.length >= 2}>+ Start a Consultation</Button>
+            <DialogTrigger asChild>
+                <Button className='mt-3' disabled={!paidUser && historyList?.length >= 20800}>+ Start a Consultation</Button>
             </DialogTrigger>
             <DialogContent>
                 <DialogHeader>
@@ -87,7 +87,6 @@ function AddNewSessionDialog() {
                         <div>
                             <h2>Select the bathusi</h2>
                             <div className='grid grid-cols-3 gap-5'>
-                                {/* //Suggested Bathusi */}
                                 {suggestedBathusi.map((bathusi, index)=>(
                                     <SuggestedBathusiCard bathusiAgent={bathusi} key={index}
                                         setSelectedBathusi={()=>setSelectedBathusi(bathusi)}
@@ -99,7 +98,7 @@ function AddNewSessionDialog() {
                     </DialogDescription>
                 </DialogHeader>
                 <DialogFooter>
-                    <DialogClose>
+                    <DialogClose asChild>
                         <Button variant={'outline'}>Cancel</Button>
                     </DialogClose>
                     {!suggestedBathusi ? <Button disabled={!note || loading} onClick={() => OnClickNext()}>

@@ -1,3 +1,4 @@
+//this file is app/api/medical-report/route.ts
 import { db } from "@/config/db";
 import {openai} from "@/config/OpenAiModel"
 import { SessionChatTable } from "@/config/schema";

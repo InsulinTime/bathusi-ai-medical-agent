@@ -1,3 +1,4 @@
+//this file is app/%28routes%29/dashboard/_components/BathusiAgentCard.tsx
 "use client"
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'

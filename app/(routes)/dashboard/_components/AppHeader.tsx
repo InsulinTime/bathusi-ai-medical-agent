@@ -1,3 +1,4 @@
+//this file is app/%28routes%29/dashboard/_components/AppHeader.tsx
 import { UserButton } from '@clerk/nextjs'
 import Image from 'next/image'
 import Link from 'next/link'
@@ -23,6 +24,21 @@ const menuOptions =[
         id:4,
         name:'Profile',
         path:'/profile'
+    },
+    {
+        id:5,
+        name:'Chat to Bathusi-AI',
+        path:'/dashboard/chat'
+    },
+    {
+        id: 6,
+        name: 'Record Consultation',
+        path: '/dashboard/consultation-recording'
+    },
+    {
+        id: 7,
+        name: 'Cognitive Tests',
+        path: '/dashboard/cognitive-tests'
     }
 ] 
 function AppHeader() {

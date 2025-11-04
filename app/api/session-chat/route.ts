@@ -1,12 +1,13 @@
-// this file is app/api/session-chat/route.tsx
+// this file is app/api/session-chat/route.ts
 import { db } from "@/config/db";
 import {SessionChatTable} from "@/config/schema";
 import { currentUser } from "@clerk/nextjs/server";
 import { desc, eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import {v4 as uuidv4} from 'uuid';
+
 export async function POST(req:NextRequest) {
-    const {notes, selectedBathusi}=await req.json();
+    const {notes, selectedBathusi, type='voice'}=await req.json();
     const user = await currentUser();
     try{
         const sessionId=uuidv4();
@@ -15,7 +16,8 @@ export async function POST(req:NextRequest) {
             createdBy:user?.primaryEmailAddress?.emailAddress,
             notes:notes,
             selectedBathusi:selectedBathusi,
-            createdOn:(new Date()).toString()
+            createdOn:(new Date()).toString(),
+            type: type
             //@ts-ignore
         }).returning({SessionChatTable});
 

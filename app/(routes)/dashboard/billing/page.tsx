@@ -1,3 +1,4 @@
+// this file is app/%28routes%29/dashboard/billing/page.tsx
 import { PricingTable } from "@clerk/nextjs";
 import React from "react";
 
