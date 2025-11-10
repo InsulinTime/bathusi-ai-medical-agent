@@ -38,3 +38,16 @@ export const DoctorConsultationTable = pgTable('doctor_consultation', {
   createdAt: timestamp().defaultNow(),
   updatedAt: timestamp().defaultNow(),
 });
+
+export const CognitiveResultsTable = pgTable('cognitive_results', {
+  id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  userId: varchar().references(() => usersTable.email),
+  sessionId: varchar(),
+  riskLevel: varchar(),
+  confidence: integer(),
+  biomarkers: json(),
+  patterns: json(),
+  recommendations: json(),
+  professionalGuidance: text(),
+  createdAt: timestamp().defaultNow()
+});
