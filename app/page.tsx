@@ -47,7 +47,7 @@ export default function HeroSectionOne() {
           Bathusi AI is a multilingual medical assistant that listens,
           understands, and visualizes health insights through voice, chat, and 3D interaction.
         </motion.p>
-        <Link href={'/sign-in'}>
+        <Link href={'/dashboard'}>
           <motion.div
             initial={{ opacity: 0, }}
             animate={{ opacity: 1, }}
@@ -65,15 +65,7 @@ export default function HeroSectionOne() {
           transition={{ duration: 0.3, delay: 1.2, }}
           className="relative z-10 mt-20 rounded-3xl border border-neutral-200 bg-neutral-100 p-4 shadow-md dark:border-neutral-800 dark:bg-neutral-900"
         >
-          <div className="w-full overflow-hidden rounded-xl border border-gray-300 dark:border-gray-700">
-            <img
-              src="https://assets.aceternity.com/pro/aceternity-landing.webp"
-              alt="Landing page preview"
-              className="aspect-[16/9] h-auto w-full object-cover"
-              height={1000}
-              width={1000}
-            />
-          </div>
+          
         </motion.div>
       </div>
       <FeatureBentoGrid />
@@ -90,7 +82,7 @@ const Navbar = () => {
         <h1 className="text-base font-bold md:text-2xl">Bathusi AI</h1>
       </div>
       {!user ?
-        <Link href={'/sign-in'}>
+        <Link href={'/dashboard/login'}>
           <button className="w-24 transform rounded-lg bg-black px-6 py-2 font-medium text-white transition-all duration-300 hover:-translate-y-0.5 hover:bg-gray-800 md:w-32 dark:bg-white dark:text-black dark:hover:bg-gray-200">
             Login
           </button></Link>:
