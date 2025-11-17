@@ -181,7 +181,7 @@ export default function CognitiveTestsPage() {
                                     >
                                         {test.status === 'available' ? (
                                             <>
-                                                Start Test
+                                                Begin Test
                                                 <ArrowRight className="w-4 h-4" />
                                             </>
                                         ) : (
