@@ -2,20 +2,14 @@
 import { db } from "@/config/db";
 import { DoctorConsultationTable } from "@/config/schema";
 import { eq } from "drizzle-orm";
-import { NextRequest, NextResponse } from "next/server";
-
-interface RouteParams {
-  params: {
-    consultationId: string;
-  };
-}
+import { NextResponse } from "next/server";
 
 export async function GET(
-  request: NextRequest,
-  { params }: RouteParams
+  request: Request,
+  { params }: { params: Promise<{ consultationId: string }> }
 ) {
   try {
-    const { consultationId } = params;
+    const { consultationId } = await params;
 
     const result = await db.select().from(DoctorConsultationTable)
       .where(eq(DoctorConsultationTable.consultationId, consultationId));
