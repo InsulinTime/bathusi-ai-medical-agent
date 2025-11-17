@@ -39,6 +39,11 @@ const menuOptions =[
         id: 7,
         name: 'Cognitive Tests',
         path: '/dashboard/cognitive-tests'
+    },
+    {
+        id: 8,
+        name: 'Terms & Safety',
+        path: '/terms'
     }
 ] 
 function AppHeader() {

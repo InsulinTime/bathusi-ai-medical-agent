@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Brain, Eye, Mic, Activity, Zap, ArrowRight, CheckCircle, AlertTriangle } from 'lucide-react'
 import EyeTrackingAnalyzer from '../_components/EyeTrackingAnalyzer'
+import MedicalDisclaimer from '@/components/MedicalDisclaimer'
 
 export default function CognitiveTestsPage() {
     const [activeTest, setActiveTest] = useState<string | null>(null)
@@ -48,7 +49,7 @@ export default function CognitiveTestsPage() {
                 return (
                     <div className="flex items-center gap-1 text-green-600 text-sm">
                         <CheckCircle className="w-4 h-4" />
-                        Available
+                        Available Now in beta testing
                     </div>
                 )
             case 'coming-soon':
@@ -100,7 +101,7 @@ export default function CognitiveTestsPage() {
                         Cognitive Health Screening
                     </h1>
                     <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-                        Advanced AI-powered assessments for early detection of cognitive changes
+                        Advanced AI-powered assessments for early detection of cognitive changes. Still in research phase. Refer to a real medical practioner.
                     </p>
                 </div>
 
@@ -206,6 +207,7 @@ export default function CognitiveTestsPage() {
                                     or as a substitute for professional medical advice. Always consult qualified healthcare 
                                     professionals for medical concerns and cognitive health assessments.
                                 </p>
+                                <MedicalDisclaimer />
                             </div>
                         </div>
                     </CardContent>
