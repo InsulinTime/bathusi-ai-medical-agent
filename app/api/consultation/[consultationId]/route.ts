@@ -1,15 +1,20 @@
-// File: app/api/consultation/[consultationId]/route.ts
+// File: app/api/consultations/route.ts
 import { db } from "@/config/db";
 import { DoctorConsultationTable } from "@/config/schema";
 import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 
-export async function GET(
-  request: NextRequest,
-  context: { params: { consultationId: string } }
-) {
+export async function GET(request: NextRequest) {
   try {
-    const consultationId = context.params.consultationId;
+    const { searchParams } = new URL(request.url);
+    const consultationId = searchParams.get("consultationId");
+
+    if (!consultationId) {
+      return NextResponse.json(
+        { error: "Consultation ID required" },
+        { status: 400 }
+      );
+    }
 
     const result = await db
       .select()
@@ -41,3 +46,4 @@ export async function GET(
     );
   }
 }
+
