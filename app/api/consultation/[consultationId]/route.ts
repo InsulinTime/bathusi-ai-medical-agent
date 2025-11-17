@@ -1,15 +1,14 @@
+// File: app/api/consultation/[consultationId]/route.ts
 import { db } from "@/config/db";
 import { DoctorConsultationTable } from "@/config/schema";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
-interface Props {
-  params: Promise<{ consultationId: string }>;
-}
-
-export async function GET(request: Request, props: Props) {
+export async function GET(
+  request: Request,
+  { params }: { params: { consultationId: string } }
+) {
   try {
-    const params = await props.params;
     const { consultationId } = params;
 
     const result = await db.select().from(DoctorConsultationTable)
