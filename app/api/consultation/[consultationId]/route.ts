@@ -1,15 +1,21 @@
-// this file is app/api/consultation/[consultationId]/route.ts
+// File: app/api/consultation/[consultationId]/route.ts
 import { db } from "@/config/db";
 import { DoctorConsultationTable } from "@/config/schema";
 import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 
+interface RouteParams {
+  params: {
+    consultationId: string;
+  };
+}
+
 export async function GET(
-  req: NextRequest,
-  { params }: { params: { consultationId: string } }
+  request: NextRequest,
+  { params }: RouteParams
 ) {
   try {
-    const consultationId = params.consultationId;
+    const { consultationId } = params;
 
     const result = await db.select().from(DoctorConsultationTable)
       .where(eq(DoctorConsultationTable.consultationId, consultationId));
