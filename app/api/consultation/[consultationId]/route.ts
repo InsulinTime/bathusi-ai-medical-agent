@@ -2,20 +2,25 @@
 import { db } from "@/config/db";
 import { DoctorConsultationTable } from "@/config/schema";
 import { eq } from "drizzle-orm";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(
-  request: Request,
-  { params }: { params: { consultationId: string } }
+  request: NextRequest,
+  context: { params: { consultationId: string } }
 ) {
   try {
-    const { consultationId } = params;
+    const consultationId = context.params.consultationId;
 
-    const result = await db.select().from(DoctorConsultationTable)
+    const result = await db
+      .select()
+      .from(DoctorConsultationTable)
       .where(eq(DoctorConsultationTable.consultationId, consultationId));
 
     if (result.length === 0) {
-      return NextResponse.json({ error: 'Consultation not found' }, { status: 404 });
+      return NextResponse.json(
+        { error: "Consultation not found" },
+        { status: 404 }
+      );
     }
 
     const consultation = result[0];
@@ -28,11 +33,10 @@ export async function GET(
       recommendations: consultation.recommendations,
       consultationDate: consultation.consultationDate,
     });
-
   } catch (error) {
-    console.error('Error fetching consultation:', error);
+    console.error("Error fetching consultation:", error);
     return NextResponse.json(
-      { error: 'Failed to fetch consultation' },
+      { error: "Failed to fetch consultation" },
       { status: 500 }
     );
   }
