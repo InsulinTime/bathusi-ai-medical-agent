@@ -1,23 +1,21 @@
 // app/(routes)/dashboard/_components/SaccadicTest.tsx
 "use client"
 import React, { useState, useEffect, useRef } from 'react'
-import { Eye, Target, MousePointer } from 'lucide-react'
+import { Eye, Target, Brain, Activity } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Circle } from 'lucide-react'
 
-interface TargetPosition {
-  x: number
-  y: number
-  timestamp: number
-  hit?: boolean
+interface MedicalTestResult {
+  reactionTime: number
+  accuracy: number
+  missedTargets: number
+  falsePositives: number
+  saccadicVelocity: number
+  cognitiveScore: number
 }
 
 interface SaccadicTestProps {
-  onTestComplete: (data: {
-    saccadicLatency: number
-    accuracy: number
-    reactionTimes: number[]
-    targetPositions: TargetPosition[]
-    eyeCursorHits?: number
-  }) => void
+  onTestComplete: (results: MedicalTestResult) => void
   isRunning: boolean
   useEyeCursor?: boolean
   eyeCursorPosition?: { x: number; y: number }
@@ -30,269 +28,235 @@ export default function SaccadicTest({
   eyeCursorPosition = { x: 0.5, y: 0.5 }
 }: SaccadicTestProps) {
   const [currentTarget, setCurrentTarget] = useState<{x: number, y: number} | null>(null)
-  const [targetHistory, setTargetHistory] = useState<TargetPosition[]>([])
-  const [reactionTimes, setReactionTimes] = useState<number[]>([])
-  const [eyeCursorHits, setEyeCursorHits] = useState<number>(0)
-  const [showHitFeedback, setShowHitFeedback] = useState(false)
-  const testContainerRef = useRef<HTMLDivElement>(null)
-  const targetTimerRef = useRef<NodeJS.Timeout | null>(null)
-  const testStartTimeRef = useRef<number>(0)
-  const lastHitTimeRef = useRef<number>(0)
+  const [testResults, setTestResults] = useState<MedicalTestResult[]>([])
+  const [showInstructions, setShowInstructions] = useState(true)
+  
+  // Medical test protocol based on clinical standards
+  const MEDICAL_TEST_PROTOCOL = {
+    targetDuration: 2000, // 2 seconds per target (clinical standard)
+    targetSize: 40, // pixels - large enough for patients with vision issues
+    numberOfTargets: 20, // Standard test length
+    patterns: [
+      'horizontal', // Test horizontal saccades
+      'vertical',   // Test vertical saccades
+      'diagonal',   // Test diagonal movements
+      'random'      // Test unpredictable movements
+    ]
+  }
 
-  // Grid positions for targets
-  const gridPositions = [
-    { x: 20, y: 20, label: 'A1' }, { x: 50, y: 20, label: 'B1' }, { x: 80, y: 20, label: 'C1' },
-    { x: 20, y: 50, label: 'A2' }, { x: 50, y: 50, label: 'B2' }, { x: 80, y: 50, label: 'C2' },
-    { x: 20, y: 80, label: 'A3' }, { x: 50, y: 80, label: 'B3' }, { x: 80, y: 80, label: 'C3' }
-  ]
-
-  useEffect(() => {
-    if (isRunning) {
-      startTest()
-    } else {
-      stopTest()
-    }
-
-    return () => {
-      stopTest()
-    }
-  }, [isRunning])
-
-  // Check for eye cursor hits when using eye tracking
   useEffect(() => {
     if (useEyeCursor && currentTarget && eyeCursorPosition) {
-      checkEyeCursorHit()
-    }
-  }, [eyeCursorPosition, currentTarget, useEyeCursor])
-
-  const checkEyeCursorHit = () => {
-    if (!currentTarget || !eyeCursorPosition) return
-
-    const distance = Math.sqrt(
-      Math.pow((eyeCursorPosition.x * 100) - currentTarget.x, 2) + 
-      Math.pow((eyeCursorPosition.y * 100) - currentTarget.y, 2)
-    )
-
-    // Check if eye cursor is within hit radius (adjusted for percentage coordinates)
-    if (distance < 8) { // 8% radius for hit detection
-      const now = Date.now()
+      // Check if the virtual eye cursor is looking at the target
+      const distance = calculateDistance(eyeCursorPosition, currentTarget)
       
-      // Prevent multiple hits for same target (debounce)
-      if (now - lastHitTimeRef.current > 500) {
-        handleTargetHit()
-        lastHitTimeRef.current = now
+      if (distance < 0.1) { // Within 10% of screen distance
+        recordHit()
       }
     }
+  }, [eyeCursorPosition, currentTarget])
+
+  const calculateDistance = (point1: any, point2: any) => {
+    return Math.sqrt(
+      Math.pow(point1.x - point2.x, 2) + 
+      Math.pow(point1.y - point2.y, 2)
+    )
   }
 
-  const handleTargetHit = () => {
-    if (!currentTarget) return
-
-    const reactionTime = Date.now() - targetHistory[targetHistory.length - 1].timestamp
-    setReactionTimes(prev => [...prev, reactionTime])
+  const recordHit = () => {
+    const reactionTime = Date.now() - (currentTarget as any).showTime
     
-    if (useEyeCursor) {
-      setEyeCursorHits(prev => prev + 1)
-      setShowHitFeedback(true)
-      setTimeout(() => setShowHitFeedback(false), 300)
+    // Medical scoring based on clinical parameters
+    const medicalScore: MedicalTestResult = {
+      reactionTime,
+      accuracy: calculateAccuracy(eyeCursorPosition!, currentTarget!),
+      missedTargets: 0,
+      falsePositives: 0,
+      saccadicVelocity: calculateSaccadicVelocity(reactionTime),
+      cognitiveScore: calculateCognitiveScore(reactionTime)
     }
     
-    // Update target history with hit status
-    setTargetHistory(prev => {
-      const updated = [...prev]
-      if (updated.length > 0) {
-        updated[updated.length - 1].hit = true
-      }
-      return updated
-    })
-    
-    // Move to next target immediately when hit
-    if (targetTimerRef.current) {
-      clearTimeout(targetTimerRef.current)
-    }
+    setTestResults(prev => [...prev, medicalScore])
     showNextTarget()
   }
 
-  const startTest = () => {
-    setTargetHistory([])
-    setReactionTimes([])
-    setEyeCursorHits(0)
-    testStartTimeRef.current = Date.now()
-    showNextTarget()
+  const calculateAccuracy = (cursor: any, target: any) => {
+    const distance = calculateDistance(cursor, target)
+    return Math.max(0, 100 - (distance * 100))
   }
 
-  const stopTest = () => {
-    if (targetTimerRef.current) {
-      clearTimeout(targetTimerRef.current)
-    }
-    setCurrentTarget(null)
+  const calculateSaccadicVelocity = (reactionTime: number) => {
+    // Medical calculation based on eye movement research
+    return 1000 / reactionTime * 300 // Simplified velocity calculation
+  }
+
+  const calculateCognitiveScore = (reactionTime: number) => {
+    // Based on medical research thresholds
+    if (reactionTime < 200) return 100 // Excellent
+    if (reactionTime < 350) return 85  // Normal
+    if (reactionTime < 500) return 70  // Mild concern
+    if (reactionTime < 750) return 50  // Moderate concern
+    return 30 // Significant concern
   }
 
   const showNextTarget = () => {
-    if (targetHistory.length >= 12) { // 12 targets for complete test
-      completeTest()
-      return
-    }
-
-    // Randomly select next target (avoid same position twice)
-    let newTarget
-    do {
-      newTarget = gridPositions[Math.floor(Math.random() * gridPositions.length)]
-    } while (currentTarget && newTarget.x === currentTarget.x && newTarget.y === currentTarget.y)
-
-    setCurrentTarget(newTarget)
+    // Generate next target position based on medical test protocol
+    const pattern = MEDICAL_TEST_PROTOCOL.patterns[
+      Math.floor(testResults.length / 5) % MEDICAL_TEST_PROTOCOL.patterns.length
+    ]
     
-    const timestamp = Date.now()
-    setTargetHistory(prev => [...prev, { ...newTarget, timestamp, hit: false }])
-
-    // Auto-advance after timeout if no hit
-    targetTimerRef.current = setTimeout(() => {
-      showNextTarget()
-    }, 3000) // 3 seconds per target
-  }
-
-  const handleTargetClick = () => {
-    if (!useEyeCursor) {
-      handleTargetHit()
+    let nextPosition
+    switch(pattern) {
+      case 'horizontal':
+        nextPosition = { 
+          x: Math.random() > 0.5 ? 0.2 : 0.8, 
+          y: 0.5 
+        }
+        break
+      case 'vertical':
+        nextPosition = { 
+          x: 0.5, 
+          y: Math.random() > 0.5 ? 0.2 : 0.8 
+        }
+        break
+      case 'diagonal':
+        nextPosition = { 
+          x: Math.random() > 0.5 ? 0.2 : 0.8,
+          y: Math.random() > 0.5 ? 0.2 : 0.8
+        }
+        break
+      default:
+        nextPosition = { 
+          x: 0.2 + Math.random() * 0.6,
+          y: 0.2 + Math.random() * 0.6
+        }
     }
+    
+    setCurrentTarget({
+      ...nextPosition,
+      showTime: Date.now()
+    } as any)
   }
 
   const completeTest = () => {
-    const saccadicLatency = reactionTimes.length > 0 
-      ? reactionTimes.reduce((a, b) => a + b, 0) / reactionTimes.length 
-      : 0
+    // Calculate medical assessment results
+    const averageReactionTime = testResults.reduce((sum, r) => sum + r.reactionTime, 0) / testResults.length
+    const averageAccuracy = testResults.reduce((sum, r) => sum + r.accuracy, 0) / testResults.length
+    const averageCognitiveScore = testResults.reduce((sum, r) => sum + r.cognitiveScore, 0) / testResults.length
     
-    const accuracy = targetHistory.length > 0 
-      ? (targetHistory.filter(t => t.hit).length / targetHistory.length) * 100 
-      : 0
-
-    onTestComplete({
-      saccadicLatency,
-      accuracy,
-      reactionTimes,
-      targetPositions: targetHistory,
-      eyeCursorHits: useEyeCursor ? eyeCursorHits : undefined
-    })
-  }
-
-  const getTestProgress = () => {
-    return Math.min(100, (targetHistory.length / 12) * 100)
+    const finalResults: MedicalTestResult = {
+      reactionTime: averageReactionTime,
+      accuracy: averageAccuracy,
+      missedTargets: testResults.filter(r => r.accuracy < 50).length,
+      falsePositives: 0,
+      saccadicVelocity: testResults.reduce((sum, r) => sum + r.saccadicVelocity, 0) / testResults.length,
+      cognitiveScore: averageCognitiveScore
+    }
+    
+    onTestComplete(finalResults)
   }
 
   return (
-    <div className="w-full h-64 bg-gray-900 rounded-lg relative overflow-hidden border-2 border-blue-500">
-      {/* Grid Background */}
-      <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 gap-4 p-4 opacity-20">
-        {gridPositions.map((pos, index) => (
-          <div key={index} className="border border-blue-300 rounded flex items-center justify-center">
-            <span className="text-blue-300 text-xs">{pos.label}</span>
+    <div className="w-full h-96 bg-gray-50 rounded-lg relative overflow-hidden border-2 border-blue-500">
+      {showInstructions && (
+        <div className="absolute inset-0 bg-white z-10 flex items-center justify-center p-8">
+          <div className="text-center max-w-md">
+            <Brain className="w-16 h-16 text-purple-600 mx-auto mb-4" />
+            <h3 className="text-xl font-bold mb-3">Medical Eye Movement Test</h3>
+            <p className="text-gray-600 mb-4">
+              This test measures your eye movement patterns to assess cognitive function.
+              {useEyeCursor ? (
+                " Look directly at the red targets as they appear. The system will track your eye movements."
+              ) : (
+                " Click on the red targets as quickly as possible when they appear."
+              )}
+            </p>
+            <div className="bg-blue-50 p-4 rounded-lg mb-4">
+              <h4 className="font-semibold text-blue-800 mb-2">What We're Testing:</h4>
+              <ul className="text-left text-sm text-blue-700 space-y-1">
+                <li>• Saccadic movement speed (rapid eye movements)</li>
+                <li>• Reaction time to visual stimuli</li>
+                <li>• Accuracy of eye movements</li>
+                <li>• Pattern recognition ability</li>
+              </ul>
+            </div>
+            <Button 
+              onClick={() => {
+                setShowInstructions(false)
+                showNextTarget()
+              }}
+              className="bg-purple-600 hover:bg-purple-700"
+            >
+              Start Medical Test
+            </Button>
           </div>
-        ))}
-      </div>
+        </div>
+      )}
 
-      {/* Eye Cursor Indicator */}
-      {useEyeCursor && isRunning && (
+      {/* Virtual Eye Cursor Overlay (NOT system mouse) */}
+      {useEyeCursor && !showInstructions && (
         <div
-          className="absolute w-6 h-6 pointer-events-none z-20"
+          className="absolute w-8 h-8 pointer-events-none z-20"
           style={{
             left: `${eyeCursorPosition.x * 100}%`,
             top: `${eyeCursorPosition.y * 100}%`,
             transform: 'translate(-50%, -50%)',
-            transition: 'all 0.1s ease'
+            transition: 'all 0.05s ease' // Smooth movement
           }}
         >
-          <MousePointer className="w-6 h-6 text-cyan-400 drop-shadow-lg" />
-          {showHitFeedback && (
-            <div className="absolute inset-0 animate-ping">
-              <Target className="w-8 h-8 text-green-400" />
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Moving Target */}
-      {currentTarget && (
-        <div
-          className={`absolute w-10 h-10 rounded-full cursor-pointer transform -translate-x-1/2 -translate-y-1/2 flex items-center justify-center transition-all duration-300 ${
-            useEyeCursor ? 'bg-red-500' : 'bg-red-500 hover:bg-red-400'
-          }`}
-          style={{
-            left: `${currentTarget.x}%`,
-            top: `${currentTarget.y}%`,
-            boxShadow: '0 0 20px rgba(239, 68, 68, 0.5)'
-          }}
-          onClick={handleTargetClick}
-        >
-          <div className="w-6 h-6 bg-white rounded-full animate-pulse"></div>
-          {useEyeCursor && (
-            <div className="absolute inset-0 border-2 border-red-300 rounded-full animate-ping"></div>
-          )}
-        </div>
-      )}
-
-      {/* Test Progress and Stats */}
-      {isRunning && (
-        <div className="absolute bottom-4 left-4 right-4">
-          <div className="flex justify-between text-white text-sm mb-1">
-            <span className="flex items-center gap-2">
-              {useEyeCursor ? (
-                <>
-                  <Eye className="w-4 h-4" />
-                  Eye Cursor Mode
-                </>
-              ) : (
-                'Test Progress'
-              )}
-            </span>
-            <span className="flex items-center gap-3">
-              {useEyeCursor && (
-                <span className="text-green-400">
-                  Hits: {eyeCursorHits}
-                </span>
-              )}
-              <span>{targetHistory.length}/12 targets</span>
-            </span>
-          </div>
-          <div className="w-full bg-gray-700 rounded-full h-2">
-            <div 
-              className="bg-gradient-to-r from-green-500 to-blue-500 h-2 rounded-full transition-all duration-300"
-              style={{ width: `${getTestProgress()}%` }}
-            ></div>
-          </div>
-          <div className="text-white text-xs mt-2 text-center">
-            {useEyeCursor ? (
-              <span className="flex items-center justify-center gap-1">
-                <Eye className="w-3 h-3" />
-                Look at the red dot to register a hit - no clicking needed!
-              </span>
-            ) : (
-              'Click the red dot as quickly as possible when it moves'
+          <div className="relative">
+            {/* Eye cursor visualization */}
+            <Circle className="w-8 h-8 text-blue-500 absolute animate-pulse" />
+            <div className="w-2 h-2 bg-blue-600 rounded-full absolute top-3 left-3" />
+            
+            {/* Show when looking at target */}
+            {currentTarget && calculateDistance(eyeCursorPosition, currentTarget) < 0.1 && (
+              <div className="absolute -top-8 left-1/2 transform -translate-x-1/2">
+                <span className="text-green-500 text-xs font-bold">LOOKING!</span>
+              </div>
             )}
           </div>
         </div>
       )}
 
-      {!isRunning && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="text-white text-center p-4">
-            <div className="text-lg font-semibold mb-2 flex items-center justify-center gap-2">
-              <Target className="w-5 h-5" />
-              Saccadic Eye Movement Test
+      {/* Medical Test Target */}
+      {currentTarget && !showInstructions && (
+        <div
+          className="absolute rounded-full bg-red-500 flex items-center justify-center transition-all duration-200"
+          style={{
+            width: `${MEDICAL_TEST_PROTOCOL.targetSize}px`,
+            height: `${MEDICAL_TEST_PROTOCOL.targetSize}px`,
+            left: `${currentTarget.x * 100}%`,
+            top: `${currentTarget.y * 100}%`,
+            transform: 'translate(-50%, -50%)',
+            boxShadow: '0 0 20px rgba(239, 68, 68, 0.5)'
+          }}
+          onClick={() => !useEyeCursor && recordHit()}
+        >
+          <Target className="w-6 h-6 text-white" />
+        </div>
+      )}
+
+      {/* Real-time Medical Metrics Display */}
+      {isRunning && !showInstructions && (
+        <div className="absolute bottom-4 left-4 right-4 bg-white bg-opacity-90 p-3 rounded-lg">
+          <div className="flex justify-between items-center text-sm">
+            <div>
+              <span className="font-semibold">Progress:</span> {testResults.length}/{MEDICAL_TEST_PROTOCOL.numberOfTargets}
             </div>
-            <p className="text-sm opacity-80">
-              {useEyeCursor ? (
-                <>
-                  Control the cursor with your eyes!<br />
-                  Look directly at targets to hit them.<br />
-                  This measures eye movement precision and speed.
-                </>
-              ) : (
-                <>
-                  Click the red dot as quickly as possible when it appears.<br />
-                  This measures your eye movement speed and accuracy.
-                </>
-              )}
-            </p>
+            <div>
+              <span className="font-semibold">Avg Reaction:</span> {
+                testResults.length > 0 
+                  ? Math.round(testResults.reduce((sum, r) => sum + r.reactionTime, 0) / testResults.length)
+                  : 0
+              }ms
+            </div>
+            <div>
+              <span className="font-semibold">Cognitive Score:</span> {
+                testResults.length > 0
+                  ? Math.round(testResults.reduce((sum, r) => sum + r.cognitiveScore, 0) / testResults.length)
+                  : 0
+              }/100
+            </div>
           </div>
         </div>
       )}

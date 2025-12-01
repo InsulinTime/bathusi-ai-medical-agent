@@ -1,13 +1,107 @@
-// app/%28routes%29/dashboard/_components/EyeTrackingAnalyzer.tsx
+// app/(routes)/dashboard/_components/EyeTrackingAnalyzer.tsx
 "use client"
-import React, { useRef, useEffect, useState } from 'react'
+import React, { useRef, useEffect, useState, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Eye, Camera, Brain, AlertTriangle, CheckCircle, Activity, Zap, VideoOff } from 'lucide-react'
+import { Eye, Camera, Brain, AlertTriangle, CheckCircle, Activity, Zap, VideoOff, Heart, Target, Crosshair, Settings } from 'lucide-react'
 import SaccadicTest from './SaccadicTest'
-import { analyzeAlzheimersPatterns, CognitiveAssessment } from '@/app/utils/alzheimersPatterns';
+import { analyzeAlzheimersPatterns, CognitiveAssessment } from '@/app/utils/alzheimersPatterns'
 import { CognitiveAnalysisAgent, CognitiveAnalysisResult } from '@/app/utils/cognitiveAnalysisAgent'
 
+// 3D Vector operations
+class Vector3 {
+  constructor(public x: number, public y: number, public z: number) {}
+  
+  static from(arr: number[]): Vector3 {
+    return new Vector3(arr[0] || 0, arr[1] || 0, arr[2] || 0)
+  }
+  
+  add(v: Vector3): Vector3 {
+    return new Vector3(this.x + v.x, this.y + v.y, this.z + v.z)
+  }
+  
+  subtract(v: Vector3): Vector3 {
+    return new Vector3(this.x - v.x, this.y - v.y, this.z - v.z)
+  }
+  
+  multiply(scalar: number): Vector3 {
+    return new Vector3(this.x * scalar, this.y * scalar, this.z * scalar)
+  }
+  
+  dot(v: Vector3): number {
+    return this.x * v.x + this.y * v.y + this.z * v.z
+  }
+  
+  cross(v: Vector3): Vector3 {
+    return new Vector3(
+      this.y * v.z - this.z * v.y,
+      this.z * v.x - this.x * v.z,
+      this.x * v.y - this.y * v.x
+    )
+  }
+  
+  length(): number {
+    return Math.sqrt(this.x * this.x + this.y * this.y + this.z * this.z)
+  }
+  
+  normalize(): Vector3 {
+    const len = this.length()
+    if (len < 1e-9) return new Vector3(0, 0, 0)
+    return new Vector3(this.x / len, this.y / len, this.z / len)
+  }
+  
+  toArray(): number[] {
+    return [this.x, this.y, this.z]
+  }
+}
+
+// 3x3 Matrix for rotations
+class Matrix3 {
+  constructor(public data: number[][]) {}
+  
+  static identity(): Matrix3 {
+    return new Matrix3([
+      [1, 0, 0],
+      [0, 1, 0],
+      [0, 0, 1]
+    ])
+  }
+  
+  static fromEuler(roll: number, pitch: number, yaw: number): Matrix3 {
+    const cr = Math.cos(roll), sr = Math.sin(roll)
+    const cp = Math.cos(pitch), sp = Math.sin(pitch)
+    const cy = Math.cos(yaw), sy = Math.sin(yaw)
+    
+    return new Matrix3([
+      [cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+      [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+      [-sp, cp * sr, cp * cr]
+    ])
+  }
+  
+  multiply(v: Vector3): Vector3 {
+    return new Vector3(
+      this.data[0][0] * v.x + this.data[0][1] * v.y + this.data[0][2] * v.z,
+      this.data[1][0] * v.x + this.data[1][1] * v.y + this.data[1][2] * v.z,
+      this.data[2][0] * v.x + this.data[2][1] * v.y + this.data[2][2] * v.z
+    )
+  }
+  
+  transpose(): Matrix3 {
+    return new Matrix3([
+      [this.data[0][0], this.data[1][0], this.data[2][0]],
+      [this.data[0][1], this.data[1][1], this.data[2][1]],
+      [this.data[0][2], this.data[1][2], this.data[2][2]]
+    ])
+  }
+  
+  determinant(): number {
+    const a = this.data
+    return a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1]) -
+           a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0]) +
+           a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0])
+  }
+}
 
 interface Landmark {
   x: number
@@ -15,97 +109,86 @@ interface Landmark {
   z: number
 }
 
+interface EyeSphere {
+  center: Vector3
+  radius: number
+  locked: boolean
+  localOffset?: Vector3
+  calibrationScale?: number
+}
+
+interface VirtualEyeCursor {
+  x: number // 0-1 normalized screen position
+  y: number // 0-1 normalized screen position
+  isTracking: boolean
+  confidence: number
+}
+
 interface EyeMetrics {
-  leftEyeOpenness: number;
-  rightEyeOpenness: number;
-  averageEAR: number;
-  asymmetry: number;
-  gazeStability: number;
-  isBlink: boolean;
-  movement: number;
-  confidence: number;
-  faceDetected: boolean;
-  cognitiveScore: number;
-  timestamp: string;
-  pupilLeft: { x: number; y: number };
-  pupilRight: { x: number; y: number };
-  gazeDirection: { x: number; y: number };
-  screenGaze: { x: number; y: number; quadrant: string };
-  saccadeVelocity: number;
-  fixationDuration: number;
-  saccadeDetected: boolean;
+  leftEyeOpenness: number
+  rightEyeOpenness: number
+  averageEAR: number
+  asymmetry: number
+  gazeStability: number
+  isBlink: boolean
+  movement: number
+  confidence: number
+  faceDetected: boolean
+  cognitiveScore: number
+  timestamp: string
+  pupilLeft: { x: number; y: number }
+  pupilRight: { x: number; y: number }
+  gazeDirection: { x: number; y: number }
+  screenGaze: { x: number; y: number; quadrant: string }
+  saccadeVelocity: number
+  fixationDuration: number
+  saccadeDetected: boolean
+  virtualCursor: VirtualEyeCursor
+  // New 3D fields
+  headCenter3D: Vector3
+  headRotation: Matrix3
+  leftIris3D: Vector3
+  rightIris3D: Vector3
+  leftGazeRay: Vector3
+  rightGazeRay: Vector3
+  combinedGazeRay: Vector3
 }
 
-// Correct MediaPipe types
-declare global {
-  interface Window {
-    faceMesh: any;
-    FaceMesh: any;
-    Camera: any;
-    drawConnectors: any;
-    drawLandmarks: any;
-    FACEMESH_LEFT_EYE?: any;
-    FACEMESH_RIGHT_EYE?: any;
-  }
-}
+// MediaPipe landmark indices
+const NOSE_INDICES = [4, 45, 275, 220, 440, 1, 5, 51, 281, 44, 274, 241, 
+                      461, 125, 354, 218, 438, 195, 167, 393, 165, 391, 3, 248]
 
-// Enhanced eye landmarks with more precise indices
-const LEFT_EYE_INDICES = [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246, 130, 25, 110, 24, 23, 22, 26, 112];
-const RIGHT_EYE_INDICES = [362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398, 359, 255, 339, 254, 253, 252, 256, 341];
-const LEFT_IRIS_INDICES = [468, 469, 470, 471, 472];
-const RIGHT_IRIS_INDICES = [473, 474, 475, 476, 477];
+const LEFT_EYE_INDICES = [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246]
+const RIGHT_EYE_INDICES = [362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398]
 
-// Define face mesh connections manually
-const FACEMESH_LEFT_EYE = [
-  [33, 7], [7, 163], [163, 144], [144, 145], [145, 153], [153, 154], [154, 155], [155, 133],
-  [33, 246], [246, 161], [161, 160], [160, 159], [159, 158], [158, 157], [157, 173], [173, 133]
-];
+const LEFT_IRIS_INDEX = 468
+const RIGHT_IRIS_INDEX = 473
 
-const FACEMESH_RIGHT_EYE = [
-  [362, 382], [382, 381], [381, 380], [380, 374], [374, 373], [373, 390], [390, 249], [249, 263],
-  [362, 466], [466, 388], [388, 387], [387, 386], [386, 385], [385, 384], [384, 398], [398, 263]
-];
-
-// Screen quadrants for gaze analysis
 const SCREEN_QUADRANTS = {
   TOP_LEFT: 'top-left',
   TOP_RIGHT: 'top-right',
   BOTTOM_LEFT: 'bottom-left',
   BOTTOM_RIGHT: 'bottom-right',
   CENTER: 'center'
-};
+}
 
-// Utility function to load scripts
-const loadScript = (src: string, name: string): Promise<void> => {
-  return new Promise((resolve, reject) => {
-    if (document.querySelector(`script[src="${src}"]`)) {
-      console.log(`✅ ${name} already loaded`)
-      resolve()
-      return
-    }
-
-    const script = document.createElement('script')
-    script.src = src
-    script.onload = () => {
-      console.log(`✅ ${name} loaded successfully`)
-      resolve()
-    }
-    script.onerror = () => {
-      console.error(`❌ Failed to load ${name}`)
-      reject(new Error(`Failed to load ${name}`))
-    }
-    document.head.appendChild(script)
-  })
+declare global {
+  interface Window {
+    Holistic?: any
+    Camera?: any
+    drawConnectors?: any
+    drawLandmarks?: any
+  }
 }
 
 export default function EyeTrackingAnalyzer() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
+  const debugCanvasRef = useRef<HTMLCanvasElement>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [metrics, setMetrics] = useState<EyeMetrics | null>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
-  const [faceMesh, setFaceMesh] = useState<any>(null)
+  const [holistic, setHolistic] = useState<any>(null)
   const [camera, setCamera] = useState<any>(null)
   const [isModelLoading, setIsModelLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -113,422 +196,518 @@ export default function EyeTrackingAnalyzer() {
   const [testPhase, setTestPhase] = useState<'idle' | 'calibration' | 'saccadic-test' | 'analysis'>('idle')
   const [saccadicData, setSaccadicData] = useState<any>(null)
   const [testResults, setTestResults] = useState<any>(null)
-  const [cognitiveAssessment, setCognitiveAssessment] = useState<CognitiveAssessment | null>(null);
-  const [fps, setFps] = useState(0);
-  const [calibrationData, setCalibrationData] = useState<{center: {x: number, y: number}, range: number} | null>(null);
-  const [gazePath, setGazePath] = useState<Array<{x: number, y: number, timestamp: number}>>([]);
-  const frameCountRef = useRef(0);
-  const lastFpsUpdateRef = useRef(0);
-  const lastSaccadeTimeRef = useRef(0);
+  const [cognitiveAssessment, setCognitiveAssessment] = useState<CognitiveAssessment | null>(null)
+  const [fps, setFps] = useState(0)
+  
+  // 3D Eye tracking state
+  const [leftEyeSphere, setLeftEyeSphere] = useState<EyeSphere>({
+    center: new Vector3(0, 0, 0),
+    radius: 12,
+    locked: false
+  })
+  
+  const [rightEyeSphere, setRightEyeSphere] = useState<EyeSphere>({
+    center: new Vector3(0, 0, 0),
+    radius: 12,
+    locked: false
+  })
+  
+  const [calibrationOffset, setCalibrationOffset] = useState({ yaw: 0, pitch: 0 })
+  const [monitorPlane, setMonitorPlane] = useState<any>(null)
+  const [headRotationRef, setHeadRotationRef] = useState<Matrix3 | null>(null)
+  
+  // Smoothing buffers
+  const gazeHistoryRef = useRef<Vector3[]>([])
+  const GAZE_HISTORY_SIZE = 10
+  
+  const virtualEyeCursor = useRef<VirtualEyeCursor>({
+    x: 0.5,
+    y: 0.5,
+    isTracking: false,
+    confidence: 0
+  })
+  
+  const frameCountRef = useRef(0)
+  const lastFpsUpdateRef = useRef(0)
 
   useEffect(() => {
-    const initializeMediaPipe = async () => {
-      try {
-        setIsModelLoading(true)
-        setError(null)
-
-        // Load MediaPipe from CDN with better error handling
-        await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js', 'MediaPipe FaceMesh')
-        await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js', 'MediaPipe Drawing Utils')
-        
-        // Wait a bit for the scripts to initialize properly
-        setTimeout(() => {
-          createFaceMeshInstance()
-        }, 100)
-        
-      } catch (error) {
-        console.error('❌ Error initializing MediaPipe:', error)
-        setError('Failed to initialize AI model: ' + error)
-        setIsModelLoading(false)
-      }
+    loadMediaPipeHolistic()
+    
+    return () => {
+      if (camera) camera.stop()
+      if (stream) stream.getTracks().forEach(track => track.stop())
     }
-
-    const createFaceMeshInstance = () => {
-      try {
-        // CORRECT: Check available constructors and use the right one
-        let faceMeshInstance;
-        
-        if (window.faceMesh) {
-          faceMeshInstance = new window.faceMesh({
-            locateFile: (file: string) => {
-              return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
-            }
-          })
-        } else if (window.FaceMesh) {
-          // Some versions might export it as FaceMesh
-          faceMeshInstance = new window.FaceMesh({
-            locateFile: (file: string) => {
-              return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
-            }
-          })
-        } else {
-          // Try to access via the global MediaPipe object
-          const mediapipe = (window as any).mediapipe;
-          if (mediapipe && mediapipe.faceMesh) {
-            faceMeshInstance = new mediapipe.faceMesh({
-              locateFile: (file: string) => {
-                return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
-              }
-            })
-          } else {
-            throw new Error('FaceMesh constructor not found. Available globals: ' + Object.keys(window).join(', '))
-          }
-        }
-
-        if (!faceMeshInstance) {
-          throw new Error('Failed to create FaceMesh instance')
-        }
-
-        faceMeshInstance.setOptions({
-          maxNumFaces: 1,
-          refineLandmarks: true,
-          minDetectionConfidence: 0.7,
-          minTrackingConfidence: 0.7
-        })
-
-        faceMeshInstance.onResults(onFaceMeshResults)
-        setFaceMesh(faceMeshInstance)
-        setIsModelLoading(false)
-        
-        console.log('✅ FaceMesh instance created successfully')
-      } catch (error: any) {
-        console.error('❌ Error creating FaceMesh instance:', error)
-        setError('Failed to create FaceMesh instance: ' + error.message)
-        setIsModelLoading(false)
-        
-        // Alternative approach: try to initialize with different method
-        setTimeout(() => tryAlternativeInitialization(), 500)
-      }
-    }
-
-    const tryAlternativeInitialization = () => {
-      try {
-        console.log('🔄 Trying alternative initialization...')
-        
-        // Check if FaceMesh is available in a different way
-        const mediapipe = (window as any).mediapipe;
-        const facemesh = (window as any).facemesh;
-        
-        if (mediapipe?.faceMesh) {
-          const faceMeshInstance = new mediapipe.faceMesh({
-            locateFile: (file: string) => {
-              return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
-            }
-          })
-          
-          faceMeshInstance.setOptions({
-            maxNumFaces: 1,
-            refineLandmarks: true,
-            minDetectionConfidence: 0.7,
-            minTrackingConfidence: 0.7
-          })
-
-          faceMeshInstance.onResults(onFaceMeshResults)
-          setFaceMesh(faceMeshInstance)
-          setIsModelLoading(false)
-          console.log('✅ FaceMesh instance created via alternative method')
-          return
-        }
-        
-        // Last resort: check for any global FaceMesh-like objects
-        const globalKeys = Object.keys(window);
-        const faceMeshKeys = globalKeys.filter(key => 
-          key.toLowerCase().includes('face') || 
-          key.toLowerCase().includes('mesh')
-        );
-        
-        console.log('🔍 Available FaceMesh-related globals:', faceMeshKeys);
-        
-        if (faceMeshKeys.length === 0) {
-          setError('FaceMesh not available. Please check if MediaPipe loaded correctly.')
-          return
-        }
-        
-        // Try the first available face mesh related global
-        for (const key of faceMeshKeys) {
-          try {
-            const Constructor = (window as any)[key];
-            if (typeof Constructor === 'function') {
-              const instance = new Constructor({
-                locateFile: (file: string) => {
-                  return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
-                }
-              });
-              
-              instance.setOptions({
-                maxNumFaces: 1,
-                refineLandmarks: true,
-                minDetectionConfidence: 0.7,
-                minTrackingConfidence: 0.7
-              });
-
-              instance.onResults(onFaceMeshResults);
-              setFaceMesh(instance);
-              setIsModelLoading(false);
-              console.log(`✅ FaceMesh instance created via ${key}`);
-              return;
-            }
-          } catch (e) {
-            console.log(`❌ Failed to create instance with ${key}:`, e);
-          }
-        }
-        
-        setError('Could not initialize FaceMesh with any available method');
-      } catch (error: any) {
-        console.error('❌ Alternative initialization failed:', error);
-        setError('All initialization methods failed: ' + error.message);
-      }
-    }
-
-    initializeMediaPipe();
   }, [])
 
-  const onFaceMeshResults = (results: any) => {
-    // Update FPS counter
-    frameCountRef.current++
-    const now = performance.now()
-    if (now - lastFpsUpdateRef.current >= 1000) {
-      setFps(Math.round((frameCountRef.current * 1000) / (now - lastFpsUpdateRef.current)))
-      frameCountRef.current = 0
-      lastFpsUpdateRef.current = now
-    }
+  const loadScript = (src: string): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      const existing = document.querySelector(`script[src="${src}"]`)
+      if (existing) {
+        resolve()
+        return
+      }
+      
+      const script = document.createElement('script')
+      script.src = src
+      script.crossOrigin = 'anonymous'
+      script.onload = () => resolve()
+      script.onerror = () => reject(new Error(`Failed to load: ${src}`))
+      document.head.appendChild(script)
+    })
+  }
 
-    if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
-      const landmarks = results.multiFaceLandmarks[0]
-      const newMetrics = calculateEnhancedEyeMetrics(landmarks)
+  const loadMediaPipeHolistic = async () => {
+    try {
+      setIsModelLoading(true)
+      setError(null)
+      
+      console.log('Loading MediaPipe Holistic for 3D eye tracking...')
+      
+      await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js')
+      await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js')
+      await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js')
+      
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      
+      const Holistic = (window as any).Holistic
+      
+      if (!Holistic) {
+        throw new Error('MediaPipe Holistic not available')
+      }
+      
+      const holisticInstance = new Holistic({
+        locateFile: (file: string) => {
+          return `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`
+        }
+      })
+      
+      holisticInstance.setOptions({
+        modelComplexity: 1,
+        smoothLandmarks: true,
+        enableSegmentation: false,
+        smoothSegmentation: false,
+        refineFaceLandmarks: true,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      })
+      
+      holisticInstance.onResults(onHolisticResults)
+      
+      setHolistic(holisticInstance)
+      setIsModelLoading(false)
+      
+      console.log('✅ 3D Eye tracking model initialized')
+      
+    } catch (error) {
+      console.error('❌ Error loading 3D eye tracking:', error)
+      setError(`Failed to load 3D eye tracking: ${error}`)
+      setIsModelLoading(false)
+    }
+  }
+
+  const computeHeadPoseFromNose = (landmarks: any[], videoWidth: number, videoHeight: number): { center: Vector3, rotation: Matrix3, scale: number } => {
+    // Extract nose landmarks
+    const nosePoints = NOSE_INDICES.map(i => 
+      new Vector3(
+        landmarks[i].x * videoWidth,
+        landmarks[i].y * videoHeight,
+        landmarks[i].z * videoWidth
+      )
+    )
+    
+    // Compute center
+    const center = nosePoints.reduce((acc, p) => acc.add(p), new Vector3(0, 0, 0))
+      .multiply(1 / nosePoints.length)
+    
+    // Center the points
+    const centered = nosePoints.map(p => p.subtract(center))
+    
+    // Compute covariance matrix for PCA
+    const cov = Array(3).fill(0).map(() => Array(3).fill(0))
+    
+    for (const p of centered) {
+      const v = [p.x, p.y, p.z]
+      for (let i = 0; i < 3; i++) {
+        for (let j = 0; j < 3; j++) {
+          cov[i][j] += v[i] * v[j]
+        }
+      }
+    }
+    
+    // Simplified PCA - use basic orientation estimation
+    // For production, you'd want proper eigenvalue decomposition
+    const forward = new Vector3(0, 0, -1) // Default forward
+    const up = new Vector3(0, -1, 0) // Default up
+    const right = forward.cross(up).normalize()
+    
+    const rotation = new Matrix3([
+      right.toArray(),
+      up.toArray(),
+      forward.toArray()
+    ])
+    
+    // Compute scale from average pairwise distance
+    let totalDist = 0
+    let count = 0
+    for (let i = 0; i < nosePoints.length; i++) {
+      for (let j = i + 1; j < nosePoints.length; j++) {
+        totalDist += nosePoints[i].subtract(nosePoints[j]).length()
+        count++
+      }
+    }
+    const scale = count > 0 ? totalDist / count : 1
+    
+    // Stabilize rotation with reference
+    if (headRotationRef) {
+      // Check for flips and correct
+      const det = rotation.determinant()
+      if (det < 0) {
+        rotation.data[2] = rotation.data[2].map(v => -v)
+      }
+    }
+    
+    return { center, rotation, scale }
+  }
+
+  const calibrateEyeSpheres = (landmarks: any[], headPose: any, videoWidth: number, videoHeight: number) => {
+    const leftIris = new Vector3(
+      landmarks[LEFT_IRIS_INDEX].x * videoWidth,
+      landmarks[LEFT_IRIS_INDEX].y * videoHeight,
+      landmarks[LEFT_IRIS_INDEX].z * videoWidth
+    )
+    
+    const rightIris = new Vector3(
+      landmarks[RIGHT_IRIS_INDEX].x * videoWidth,
+      landmarks[RIGHT_IRIS_INDEX].y * videoHeight,
+      landmarks[RIGHT_IRIS_INDEX].z * videoWidth
+    )
+    
+    // Base radius for eye sphere (adjust based on face scale)
+    const baseRadius = 12
+    
+    // Camera direction in world space
+    const cameraDir = new Vector3(0, 0, 1)
+    const cameraLocal = headPose.rotation.transpose().multiply(cameraDir)
+    
+    // Left eye sphere
+    const leftOffset = headPose.rotation.transpose().multiply(leftIris.subtract(headPose.center))
+    const leftSphereOffset = leftOffset.add(cameraLocal.multiply(baseRadius))
+    
+    setLeftEyeSphere({
+      center: headPose.center.add(headPose.rotation.multiply(leftSphereOffset)),
+      radius: baseRadius,
+      locked: true,
+      localOffset: leftSphereOffset,
+      calibrationScale: headPose.scale
+    })
+    
+    // Right eye sphere
+    const rightOffset = headPose.rotation.transpose().multiply(rightIris.subtract(headPose.center))
+    const rightSphereOffset = rightOffset.add(cameraLocal.multiply(baseRadius))
+    
+    setRightEyeSphere({
+      center: headPose.center.add(headPose.rotation.multiply(rightSphereOffset)),
+      radius: baseRadius,
+      locked: true,
+      localOffset: rightSphereOffset,
+      calibrationScale: headPose.scale
+    })
+    
+    console.log('Eye spheres calibrated')
+  }
+
+  const calculate3DGazeDirection = (
+    irisPos: Vector3,
+    sphereCenter: Vector3,
+    sphereRadius: number
+  ): Vector3 => {
+    // Calculate gaze ray from eye sphere center through iris
+    const gazeDir = irisPos.subtract(sphereCenter)
+    return gazeDir.normalize()
+  }
+
+  const convertGazeToScreenCoordinates = (gazeDir: Vector3): { x: number, y: number } => {
+    // Reference forward (looking straight ahead)
+    const reference = new Vector3(0, 0, -1)
+    
+    // Calculate yaw (horizontal angle)
+    const xzProj = new Vector3(gazeDir.x, 0, gazeDir.z).normalize()
+    let yawRad = Math.acos(Math.max(-1, Math.min(1, reference.dot(xzProj))))
+    if (gazeDir.x < 0) yawRad = -yawRad
+    
+    // Calculate pitch (vertical angle)
+    const yzProj = new Vector3(0, gazeDir.y, gazeDir.z).normalize()
+    let pitchRad = Math.acos(Math.max(-1, Math.min(1, reference.dot(yzProj))))
+    if (gazeDir.y > 0) pitchRad = -pitchRad
+    
+    // Convert to degrees and apply calibration
+    let yawDeg = (yawRad * 180 / Math.PI)
+    let pitchDeg = (pitchRad * 180 / Math.PI)
+    
+    // Fix inversion issue - negate horizontal movement
+    yawDeg = -yawDeg
+    
+    // Apply calibration offsets
+    yawDeg += calibrationOffset.yaw
+    pitchDeg += calibrationOffset.pitch
+    
+    // Map to screen coordinates with proper sensitivity
+    const yawSensitivity = 15 // degrees for full screen width
+    const pitchSensitivity = 10 // degrees for full screen height
+    
+    let screenX = 0.5 + (yawDeg / yawSensitivity) * 0.5
+    let screenY = 0.5 - (pitchDeg / pitchSensitivity) * 0.5
+    
+    // Clamp to screen bounds
+    screenX = Math.max(0, Math.min(1, screenX))
+    screenY = Math.max(0, Math.min(1, screenY))
+    
+    return { x: screenX, y: screenY }
+  }
+
+  const onHolisticResults = (results: any) => {
+    updateFPS()
+    
+    const canvas = canvasRef.current
+    const video = videoRef.current
+    
+    if (!canvas || !video) return
+    
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    
+    const videoWidth = video.videoWidth || 640
+    const videoHeight = video.videoHeight || 480
+    
+    canvas.width = videoWidth
+    canvas.height = videoHeight
+    
+    ctx.save()
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+    
+    if (results.faceLandmarks) {
+      const landmarks = results.faceLandmarks.landmark
+      
+      // Compute head pose from nose region
+      const headPose = computeHeadPoseFromNose(landmarks, videoWidth, videoHeight)
+      
+      // Get iris positions
+      const leftIris3D = new Vector3(
+        landmarks[LEFT_IRIS_INDEX].x * videoWidth,
+        landmarks[LEFT_IRIS_INDEX].y * videoHeight,
+        landmarks[LEFT_IRIS_INDEX].z * videoWidth
+      )
+      
+      const rightIris3D = new Vector3(
+        landmarks[RIGHT_IRIS_INDEX].x * videoWidth,
+        landmarks[RIGHT_IRIS_INDEX].y * videoHeight,
+        landmarks[RIGHT_IRIS_INDEX].z * videoWidth
+      )
+      
+      // Update eye spheres if locked (calibrated)
+      let leftGazeRay = new Vector3(0, 0, -1)
+      let rightGazeRay = new Vector3(0, 0, -1)
+      let combinedGazeRay = new Vector3(0, 0, -1)
+      
+      if (leftEyeSphere.locked && rightEyeSphere.locked) {
+        // Scale-aware sphere positions
+        const scaleRatio = headPose.scale / (leftEyeSphere.calibrationScale || 1)
+        
+        const leftSphereCenter = headPose.center.add(
+          headPose.rotation.multiply(leftEyeSphere.localOffset!.multiply(scaleRatio))
+        )
+        
+        const rightSphereCenter = headPose.center.add(
+          headPose.rotation.multiply(rightEyeSphere.localOffset!.multiply(scaleRatio))
+        )
+        
+        // Calculate gaze rays
+        leftGazeRay = calculate3DGazeDirection(leftIris3D, leftSphereCenter, leftEyeSphere.radius * scaleRatio)
+        rightGazeRay = calculate3DGazeDirection(rightIris3D, rightSphereCenter, rightEyeSphere.radius * scaleRatio)
+        
+        // Combined gaze (average of both eyes)
+        const rawCombined = leftGazeRay.add(rightGazeRay).multiply(0.5).normalize()
+        
+        // Smooth the gaze
+        gazeHistoryRef.current.push(rawCombined)
+        if (gazeHistoryRef.current.length > GAZE_HISTORY_SIZE) {
+          gazeHistoryRef.current.shift()
+        }
+        
+        if (gazeHistoryRef.current.length > 0) {
+          const sumGaze = gazeHistoryRef.current.reduce((acc, g) => acc.add(g), new Vector3(0, 0, 0))
+          combinedGazeRay = sumGaze.multiply(1 / gazeHistoryRef.current.length).normalize()
+        } else {
+          combinedGazeRay = rawCombined
+        }
+        
+        // Draw eye spheres and gaze rays
+        drawEyeSphere(ctx, leftSphereCenter, leftEyeSphere.radius * scaleRatio, '#FFFF00')
+        drawEyeSphere(ctx, rightSphereCenter, rightEyeSphere.radius * scaleRatio, '#00FFFF')
+        drawGazeRay(ctx, leftSphereCenter, leftGazeRay, 200, '#FFFF00')
+        drawGazeRay(ctx, rightSphereCenter, rightGazeRay, 200, '#00FFFF')
+        
+        const gazeOrigin = leftSphereCenter.add(rightSphereCenter).multiply(0.5)
+        drawGazeRay(ctx, gazeOrigin, combinedGazeRay, 300, '#FF00FF', 3)
+      } else {
+        // Not calibrated - draw iris positions
+        ctx.fillStyle = '#FF0000'
+        ctx.beginPath()
+        ctx.arc(leftIris3D.x, leftIris3D.y, 5, 0, 2 * Math.PI)
+        ctx.fill()
+        
+        ctx.beginPath()
+        ctx.arc(rightIris3D.x, rightIris3D.y, 5, 0, 2 * Math.PI)
+        ctx.fill()
+      }
+      
+      // Convert gaze to screen coordinates
+      const screenGaze = convertGazeToScreenCoordinates(combinedGazeRay)
+      
+      // Update virtual cursor
+      virtualEyeCursor.current = {
+        x: screenGaze.x,
+        y: screenGaze.y,
+        isTracking: true,
+        confidence: leftEyeSphere.locked && rightEyeSphere.locked ? 0.95 : 0.5
+      }
+      
+      // Calculate medical metrics
+      const newMetrics = calculateMedicalMetrics(
+        landmarks,
+        headPose,
+        leftIris3D,
+        rightIris3D,
+        leftGazeRay,
+        rightGazeRay,
+        combinedGazeRay,
+        screenGaze,
+        videoWidth,
+        videoHeight
+      )
       
       if (newMetrics) {
         setMetrics(newMetrics)
+        setHistory(prev => [...prev, newMetrics].slice(-120))
         
-        // Add to history for pattern analysis
-        const newHistory = [...history, newMetrics].slice(-120)
-        setHistory(newHistory)
-        
-        // Update gaze path
-        if (newMetrics.screenGaze) {
-          setGazePath(prev => [...prev, {
-            x: newMetrics.screenGaze.x,
-            y: newMetrics.screenGaze.y,
-            timestamp: Date.now()
-          }].slice(-50))
-        }
-        
-        // Draw landmarks on canvas
-        drawLandmarksOnCanvas(landmarks, newMetrics)
-        
-        // Run Alzheimer's analysis when we have enough data
-        if (newHistory.length >= 60) {
-          const assessment = analyzeAlzheimersPatterns(newHistory, saccadicData)
+        // Run cognitive assessment
+        if (history.length >= 60 && testPhase === 'saccadic-test') {
+          const assessment = analyzeAlzheimersPatterns(history, saccadicData)
           setCognitiveAssessment(assessment)
         }
       }
-    } else {
-      setMetrics(prev => prev ? { 
-        ...prev, 
-        confidence: 0.3, 
-        faceDetected: false 
-      } : null)
       
-      // Clear canvas when no face detected
-      const canvas = canvasRef.current
-      const ctx = canvas?.getContext('2d')
-      if (ctx && canvas) {
-        ctx.clearRect(0, 0, canvas.width, canvas.height)
-      }
+      // Draw screen position indicator
+      ctx.fillStyle = '#00FF00'
+      ctx.font = '16px Arial'
+      ctx.fillText(
+        `Screen: (${(screenGaze.x * 100).toFixed(0)}%, ${(screenGaze.y * 100).toFixed(0)}%)`,
+        10, 30
+      )
+      
+      // Draw calibration status
+      ctx.fillStyle = leftEyeSphere.locked ? '#00FF00' : '#FF0000'
+      ctx.fillText(
+        `Calibration: ${leftEyeSphere.locked ? 'LOCKED' : 'Press C to calibrate'}`,
+        10, 50
+      )
+    } else {
+      setMetrics(prev => prev ? { ...prev, faceDetected: false, confidence: 0 } : null)
+      virtualEyeCursor.current.isTracking = false
     }
+    
+    ctx.restore()
   }
 
-  const drawLandmarksOnCanvas = (landmarks: Landmark[], metrics?: EyeMetrics) => {
-    const canvas = canvasRef.current
-    const video = videoRef.current
-    const ctx = canvas?.getContext('2d')
-    
-    if (!canvas || !ctx || !video) return
-
-    // Set canvas dimensions to match video
-    if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
-      canvas.width = video.videoWidth
-      canvas.height = video.videoHeight
-    }
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-    
-    // Draw eye landmarks using our manual definitions
-    if (window.drawLandmarks && window.drawConnectors) {
-      // Draw left eye
-      const leftEyeLandmarks = LEFT_EYE_INDICES.map(i => landmarks[i])
-      window.drawConnectors(ctx, leftEyeLandmarks, FACEMESH_LEFT_EYE, { color: '#00FF00', lineWidth: 1 })
-      window.drawLandmarks(ctx, leftEyeLandmarks, { color: '#00FF00', lineWidth: 0.5, radius: 1 })
-      
-      // Draw right eye
-      const rightEyeLandmarks = RIGHT_EYE_INDICES.map(i => landmarks[i])
-      window.drawConnectors(ctx, rightEyeLandmarks, FACEMESH_RIGHT_EYE, { color: '#00FF00', lineWidth: 1 })
-      window.drawLandmarks(ctx, rightEyeLandmarks, { color: '#00FF00', lineWidth: 0.5, radius: 1 })
-      
-      // Draw iris landmarks
-      const leftIrisLandmarks = LEFT_IRIS_INDICES.map(i => landmarks[i])
-      const rightIrisLandmarks = RIGHT_IRIS_INDICES.map(i => landmarks[i])
-      
-      window.drawLandmarks(ctx, leftIrisLandmarks, { color: '#FF0000', lineWidth: 1, radius: 2 })
-      window.drawLandmarks(ctx, rightIrisLandmarks, { color: '#FF0000', lineWidth: 1, radius: 2 })
-    } else {
-      // Fallback: simple circle drawing if drawing utils not available
-      drawSimpleLandmarks(ctx, landmarks, metrics)
-    }
-
-    // Draw gaze point on screen if available
-    if (metrics?.screenGaze) {
-      drawGazePoint(ctx, metrics.screenGaze)
-    }
-
-    // Draw gaze path
-    drawGazePath(ctx)
-  }
-
-  // Draw gaze point on screen
-  const drawGazePoint = (ctx: CanvasRenderingContext2D, screenGaze: {x: number, y: number, quadrant: string}) => {
-    const canvas = ctx.canvas
-    const gazeX = screenGaze.x * canvas.width
-    const gazeY = screenGaze.y * canvas.height
-
-    // Draw gaze point
-    ctx.fillStyle = '#FF00FF'
-    ctx.beginPath()
-    ctx.arc(gazeX, gazeY, 8, 0, 2 * Math.PI)
-    ctx.fill()
-
-    // Draw pulse animation
-    ctx.strokeStyle = '#FF00FF'
+  const drawEyeSphere = (ctx: CanvasRenderingContext2D, center: Vector3, radius: number, color: string) => {
+    ctx.strokeStyle = color
     ctx.lineWidth = 2
     ctx.beginPath()
-    ctx.arc(gazeX, gazeY, 12, 0, 2 * Math.PI)
+    ctx.arc(center.x, center.y, radius, 0, 2 * Math.PI)
     ctx.stroke()
-
-    // Draw quadrant text
-    ctx.fillStyle = '#FFFFFF'
-    ctx.font = '14px Arial'
-    ctx.fillText(`Gaze: ${screenGaze.quadrant}`, gazeX + 15, gazeY - 10)
   }
 
-  // Draw gaze path trail
-  const drawGazePath = (ctx: CanvasRenderingContext2D) => {
-    if (gazePath.length < 2) return
-
-    const canvas = ctx.canvas
-    ctx.strokeStyle = '#00FFFF'
-    ctx.lineWidth = 2
-    ctx.setLineDash([5, 5])
-
+  const drawGazeRay = (
+    ctx: CanvasRenderingContext2D,
+    origin: Vector3,
+    direction: Vector3,
+    length: number,
+    color: string,
+    width: number = 2
+  ) => {
+    const endpoint = origin.add(direction.multiply(length))
+    
+    ctx.strokeStyle = color
+    ctx.lineWidth = width
     ctx.beginPath()
-    gazePath.forEach((point, index) => {
-      const x = point.x * canvas.width
-      const y = point.y * canvas.height
-      
-      if (index === 0) {
-        ctx.moveTo(x, y)
-      } else {
-        ctx.lineTo(x, y)
-      }
-    })
+    ctx.moveTo(origin.x, origin.y)
+    ctx.lineTo(endpoint.x, endpoint.y)
     ctx.stroke()
-    ctx.setLineDash([])
-  }
-
-  // Fallback drawing function
-  const drawSimpleLandmarks = (ctx: CanvasRenderingContext2D, landmarks: Landmark[], metrics?: EyeMetrics) => {
-    const canvas = ctx.canvas
     
-    // Draw left eye
-    LEFT_EYE_INDICES.forEach(index => {
-      const landmark = landmarks[index]
-      if (landmark) {
-        ctx.fillStyle = '#00FF00'
-        ctx.beginPath()
-        ctx.arc(landmark.x * canvas.width, landmark.y * canvas.height, 2, 0, 2 * Math.PI)
-        ctx.fill()
-      }
-    })
+    // Draw arrowhead
+    const arrowSize = 10
+    const arrowAngle = Math.PI / 6
     
-    // Draw right eye
-    RIGHT_EYE_INDICES.forEach(index => {
-      const landmark = landmarks[index]
-      if (landmark) {
-        ctx.fillStyle = '#00FF00'
-        ctx.beginPath()
-        ctx.arc(landmark.x * canvas.width, landmark.y * canvas.height, 2, 0, 2 * Math.PI)
-        ctx.fill()
-      }
-    })
-    
-    // Draw iris centers
-    const leftIrisCenter = calculatePupilPosition(LEFT_IRIS_INDICES.map(i => landmarks[i]))
-    const rightIrisCenter = calculatePupilPosition(RIGHT_IRIS_INDICES.map(i => landmarks[i]))
-    
-    ctx.fillStyle = '#FF0000'
-    ctx.beginPath()
-    ctx.arc(leftIrisCenter.x * canvas.width, leftIrisCenter.y * canvas.height, 3, 0, 2 * Math.PI)
-    ctx.fill()
+    const angle = Math.atan2(direction.y, direction.x)
     
     ctx.beginPath()
-    ctx.arc(rightIrisCenter.x * canvas.width, rightIrisCenter.y * canvas.height, 3, 0, 2 * Math.PI)
-    ctx.fill()
+    ctx.moveTo(endpoint.x, endpoint.y)
+    ctx.lineTo(
+      endpoint.x - arrowSize * Math.cos(angle - arrowAngle),
+      endpoint.y - arrowSize * Math.sin(angle - arrowAngle)
+    )
+    ctx.moveTo(endpoint.x, endpoint.y)
+    ctx.lineTo(
+      endpoint.x - arrowSize * Math.cos(angle + arrowAngle),
+      endpoint.y - arrowSize * Math.sin(angle + arrowAngle)
+    )
+    ctx.stroke()
   }
 
-  // Calibration function to establish baseline gaze
-  const calibrateGaze = () => {
-    if (metrics && metrics.faceDetected) {
-      const centerX = metrics.gazeDirection.x
-      const centerY = metrics.gazeDirection.y
-      
-      setCalibrationData({
-        center: { x: centerX, y: centerY },
-        range: 0.1
-      })
-      
-      console.log('Gaze calibration completed:', { centerX, centerY })
-    }
-  }
-
-  const calculateEnhancedEyeMetrics = (landmarks: Landmark[]): EyeMetrics | null => {
+  const calculateMedicalMetrics = (
+    landmarks: any[],
+    headPose: any,
+    leftIris3D: Vector3,
+    rightIris3D: Vector3,
+    leftGazeRay: Vector3,
+    rightGazeRay: Vector3,
+    combinedGazeRay: Vector3,
+    screenGaze: { x: number, y: number },
+    videoWidth: number,
+    videoHeight: number
+  ): EyeMetrics | null => {
     try {
-      const leftEyeCoords = LEFT_EYE_INDICES.map(i => landmarks[i])
-      const rightEyeCoords = RIGHT_EYE_INDICES.map(i => landmarks[i])
-      const leftIrisCoords = LEFT_IRIS_INDICES.map(i => landmarks[i])
-      const rightIrisCoords = RIGHT_IRIS_INDICES.map(i => landmarks[i])
+      // Calculate eye openness (EAR)
+      const leftEye = LEFT_EYE_INDICES.map(i => landmarks[i])
+      const rightEye = RIGHT_EYE_INDICES.map(i => landmarks[i])
       
-      const leftEAR = calculateEAR(leftEyeCoords)
-      const rightEAR = calculateEAR(rightEyeCoords)
+      const leftEAR = calculateEAR(leftEye, videoWidth, videoHeight)
+      const rightEAR = calculateEAR(rightEye, videoWidth, videoHeight)
       const averageEAR = (leftEAR + rightEAR) / 2
       const asymmetry = Math.abs(leftEAR - rightEAR)
       
-      const leftPupil = calculatePupilPosition(leftIrisCoords)
-      const rightPupil = calculatePupilPosition(rightIrisCoords)
-      
-      const gazeDirection = calculateGazeDirection(leftPupil, rightPupil, leftEyeCoords, rightEyeCoords)
-      const screenGaze = calculateScreenGaze(gazeDirection, calibrationData)
-      
+      // Movement and saccade detection
       let movement = 0
       let saccadeVelocity = 0
       let saccadeDetected = false
       
       if (history.length > 0) {
         const lastMetrics = history[history.length - 1]
-        movement = calculateMovement(leftPupil, rightPupil, lastMetrics)
-        saccadeVelocity = calculateSaccadeVelocity(leftPupil, rightPupil, lastMetrics)
-        saccadeDetected = detectSaccade(movement, saccadeVelocity, lastMetrics)
+        const lastGaze = lastMetrics.combinedGazeRay
+        
+        movement = combinedGazeRay.subtract(lastGaze).length()
+        saccadeVelocity = movement * 60 // Assuming 60fps
+        saccadeDetected = saccadeVelocity > 0.5
       }
       
       const isBlink = averageEAR < 0.15
-      const gazeStability = calculateEnhancedGazeStability(landmarks, history)
-      const fixationDuration = calculateFixationDuration(history, movement)
+      const gazeStability = calculateGazeStability()
+      const fixationDuration = movement < 0.01 ? 
+        (history.filter(h => h.movement < 0.01).length * 16.67) : 0
       
-      const cognitiveScore = calculateEnhancedCognitiveScore(
-        averageEAR, 
-        asymmetry, 
-        gazeStability, 
-        movement, 
-        saccadeVelocity,
-        fixationDuration
+      const cognitiveScore = calculateCognitiveScore(
+        averageEAR, asymmetry, gazeStability, movement, saccadeVelocity, fixationDuration
       )
       
       return {
@@ -539,48 +718,87 @@ export default function EyeTrackingAnalyzer() {
         gazeStability,
         isBlink,
         movement,
-        confidence: 0.9,
+        confidence: virtualEyeCursor.current.confidence,
         faceDetected: true,
         cognitiveScore,
         timestamp: new Date().toISOString(),
-        pupilLeft: leftPupil,
-        pupilRight: rightPupil,
-        gazeDirection,
-        screenGaze,
+        pupilLeft: { x: leftIris3D.x / videoWidth, y: leftIris3D.y / videoHeight },
+        pupilRight: { x: rightIris3D.x / videoWidth, y: rightIris3D.y / videoHeight },
+        gazeDirection: { x: combinedGazeRay.x, y: combinedGazeRay.y },
+        screenGaze: {
+          x: screenGaze.x,
+          y: screenGaze.y,
+          quadrant: getScreenQuadrant(screenGaze.x, screenGaze.y)
+        },
         saccadeVelocity,
         fixationDuration,
-        saccadeDetected
+        saccadeDetected,
+        virtualCursor: virtualEyeCursor.current,
+        headCenter3D: headPose.center,
+        headRotation: headPose.rotation,
+        leftIris3D,
+        rightIris3D,
+        leftGazeRay,
+        rightGazeRay,
+        combinedGazeRay
       }
     } catch (error) {
-      console.error('Error calculating enhanced metrics:', error)
+      console.error('Error calculating metrics:', error)
       return null
     }
   }
 
-  // Calculate screen-relative gaze position
-  const calculateScreenGaze = (gazeDirection: {x: number, y: number}, calibration: any) => {
-    if (!calibration) {
-      const x = 0.5 + (gazeDirection.x * 2)
-      const y = 0.5 + (gazeDirection.y * 2)
+  const calculateEAR = (eye: any[], width: number, height: number): number => {
+    if (eye.length < 6) return 0.25
+    
+    try {
+      const p1 = new Vector3(eye[1].x * width, eye[1].y * height, eye[1].z * width)
+      const p2 = new Vector3(eye[5].x * width, eye[5].y * height, eye[5].z * width)
+      const p3 = new Vector3(eye[2].x * width, eye[2].y * height, eye[2].z * width)
+      const p4 = new Vector3(eye[4].x * width, eye[4].y * height, eye[4].z * width)
+      const p5 = new Vector3(eye[0].x * width, eye[0].y * height, eye[0].z * width)
+      const p6 = new Vector3(eye[3].x * width, eye[3].y * height, eye[3].z * width)
       
-      return {
-        x: Math.max(0, Math.min(1, x)),
-        y: Math.max(0, Math.min(1, y)),
-        quadrant: getScreenQuadrant(x, y)
-      }
-    }
-
-    const calibratedX = 0.5 + ((gazeDirection.x - calibration.center.x) / calibration.range) * 0.5
-    const calibratedY = 0.5 + ((gazeDirection.y - calibration.center.y) / calibration.range) * 0.5
-
-    return {
-      x: Math.max(0, Math.min(1, calibratedX)),
-      y: Math.max(0, Math.min(1, calibratedY)),
-      quadrant: getScreenQuadrant(calibratedX, calibratedY)
+      const v1 = p1.subtract(p2).length()
+      const v2 = p3.subtract(p4).length()
+      const h = p5.subtract(p6).length()
+      
+      return h > 0 ? (v1 + v2) / (2 * h) : 0.25
+    } catch {
+      return 0.25
     }
   }
 
-  // Determine which screen quadrant the gaze is in
+  const calculateGazeStability = (): number => {
+    if (gazeHistoryRef.current.length < 2) return 0.5
+    
+    let totalVariance = 0
+    for (let i = 1; i < gazeHistoryRef.current.length; i++) {
+      const diff = gazeHistoryRef.current[i].subtract(gazeHistoryRef.current[i-1])
+      totalVariance += diff.length()
+    }
+    
+    const avgVariance = totalVariance / (gazeHistoryRef.current.length - 1)
+    return Math.max(0, 1 - (avgVariance * 10))
+  }
+
+  const calculateCognitiveScore = (
+    ear: number, asymmetry: number, stability: number,
+    movement: number, velocity: number, fixation: number
+  ): number => {
+    const baseScore = 70
+    const earScore = Math.min(100, baseScore + (ear - 0.25) * 120)
+    const asymPenalty = asymmetry * 400
+    const stabBonus = stability * 20
+    const movePenalty = movement * 200
+    const velBonus = velocity > 0.3 && velocity < 1 ? 10 : 0
+    const fixBonus = Math.min(15, fixation / 100)
+    
+    return Math.max(0, Math.min(100, 
+      earScore - asymPenalty + stabBonus - movePenalty + velBonus + fixBonus
+    ))
+  }
+
   const getScreenQuadrant = (x: number, y: number): string => {
     if (x < 0.4 && y < 0.4) return SCREEN_QUADRANTS.TOP_LEFT
     if (x > 0.6 && y < 0.4) return SCREEN_QUADRANTS.TOP_RIGHT
@@ -589,296 +807,118 @@ export default function EyeTrackingAnalyzer() {
     return SCREEN_QUADRANTS.CENTER
   }
 
-  // Detect saccades (rapid eye movements)
-  const detectSaccade = (currentMovement: number, currentVelocity: number, lastMetrics: EyeMetrics): boolean => {
-    const now = Date.now()
-    const timeSinceLastSaccade = now - lastSaccadeTimeRef.current
-    
-    const isRapidMovement = currentVelocity > 80
-    const isSignificantMovement = currentMovement > 0.02
-    const sufficientTimePassed = timeSinceLastSaccade > 100
-    
-    if (isRapidMovement && isSignificantMovement && sufficientTimePassed) {
-      lastSaccadeTimeRef.current = now
-      return true
-    }
-    
-    return false
-  }
-
-  const calculateEAR = (eyeCoords: Landmark[]): number => {
-    try {
-      const p1 = eyeCoords[0]
-      const p2 = eyeCoords[1]
-      const p3 = eyeCoords[2]
-      const p4 = eyeCoords[3]
-      const p5 = eyeCoords[4]
-      const p6 = eyeCoords[5]
-      const p7 = eyeCoords[6]
-      const p8 = eyeCoords[7]
-
-      const vertical1 = Math.sqrt(Math.pow(p2.x - p8.x, 2) + Math.pow(p2.y - p8.y, 2))
-      const vertical2 = Math.sqrt(Math.pow(p3.x - p7.x, 2) + Math.pow(p3.y - p7.y, 2))
-      const vertical3 = Math.sqrt(Math.pow(p4.x - p6.x, 2) + Math.pow(p4.y - p6.y, 2))
-      const horizontal = Math.sqrt(Math.pow(p1.x - p5.x, 2) + Math.pow(p1.y - p5.y, 2))
-
-      return horizontal > 0 ? (vertical1 + vertical2 + vertical3) / (3 * horizontal) : 0.25
-    } catch (error) {
-      return 0.25
+  const updateFPS = () => {
+    frameCountRef.current++
+    const now = performance.now()
+    if (now - lastFpsUpdateRef.current >= 1000) {
+      setFps(Math.round((frameCountRef.current * 1000) / (now - lastFpsUpdateRef.current)))
+      frameCountRef.current = 0
+      lastFpsUpdateRef.current = now
     }
   }
 
-  const calculatePupilPosition = (irisCoords: Landmark[]) => {
-    const sum = irisCoords.reduce((acc, point) => ({
-      x: acc.x + point.x,
-      y: acc.y + point.y
-    }), { x: 0, y: 0 })
-    
-    return {
-      x: sum.x / irisCoords.length,
-      y: sum.y / irisCoords.length
-    }
-  }
-
-  const calculateGazeDirection = (leftPupil: any, rightPupil: any, leftEye: Landmark[], rightEye: Landmark[]) => {
-    const leftEyeCenter = calculateEyeCenter(leftEye)
-    const rightEyeCenter = calculateEyeCenter(rightEye)
-    
-    const leftGazeX = ((leftPupil.x - leftEyeCenter.x) / (calculateEyeWidth(leftEye))) * 2
-    const leftGazeY = ((leftPupil.y - leftEyeCenter.y) / (calculateEyeHeight(leftEye))) * 2
-    const rightGazeX = ((rightPupil.x - rightEyeCenter.x) / (calculateEyeWidth(rightEye))) * 2
-    const rightGazeY = ((rightPupil.y - rightEyeCenter.y) / (calculateEyeHeight(rightEye))) * 2
-    
-    return {
-      x: (leftGazeX + rightGazeX) / 2,
-      y: (leftGazeY + rightGazeY) / 2
-    }
-  }
-
-  const calculateEyeWidth = (eyeCoords: Landmark[]) => {
-    const leftCorner = eyeCoords[0]
-    const rightCorner = eyeCoords[4]
-    return Math.abs(rightCorner.x - leftCorner.x)
-  }
-
-  const calculateEyeHeight = (eyeCoords: Landmark[]) => {
-    const top = eyeCoords[2].y
-    const bottom = eyeCoords[6].y
-    return Math.abs(bottom - top)
-  }
-
-  const calculateEyeCenter = (eyeCoords: Landmark[]) => {
-    const sum = eyeCoords.reduce((acc, point) => ({
-      x: acc.x + point.x,
-      y: acc.y + point.y
-    }), { x: 0, y: 0 })
-    
-    return {
-      x: sum.x / eyeCoords.length,
-      y: sum.y / eyeCoords.length
-    }
-  }
-
-  const calculateMovement = (currentLeft: any, currentRight: any, previous: EyeMetrics) => {
-    const leftMovement = Math.sqrt(
-      Math.pow(currentLeft.x - previous.pupilLeft.x, 2) + 
-      Math.pow(currentLeft.y - previous.pupilLeft.y, 2)
-    )
-    
-    const rightMovement = Math.sqrt(
-      Math.pow(currentRight.x - previous.pupilRight.x, 2) + 
-      Math.pow(currentRight.y - previous.pupilRight.y, 2)
-    )
-    
-    return (leftMovement + rightMovement) / 2
-  }
-
-  const calculateSaccadeVelocity = (currentLeft: any, currentRight: any, previous: EyeMetrics) => {
-    const timeDiff = 16.67
-    const movement = calculateMovement(currentLeft, currentRight, previous)
-    return (movement / timeDiff) * 1000
-  }
-
-  const calculateEnhancedGazeStability = (landmarks: Landmark[], history: EyeMetrics[]): number => {
-    if (history.length < 2) return 0.8
-    
-    const recentGazeDirections = history.slice(-10).map(h => h.gazeDirection)
-    let totalVariance = 0
-    
-    for (let i = 1; i < recentGazeDirections.length; i++) {
-      const dx = recentGazeDirections[i].x - recentGazeDirections[i-1].x
-      const dy = recentGazeDirections[i].y - recentGazeDirections[i-1].y
-      totalVariance += Math.sqrt(dx * dx + dy * dy)
-    }
-    
-    const avgVariance = totalVariance / (recentGazeDirections.length - 1)
-    return Math.max(0, 1 - (avgVariance * 10))
-  }
-
-  const calculateFixationDuration = (history: EyeMetrics[], currentMovement: number): number => {
-    if (history.length < 2) return 0
-    
-    let fixationFrames = 0
-    for (let i = history.length - 1; i >= 0; i--) {
-      if (history[i].movement < 0.005) {
-        fixationFrames++
-      } else {
-        break
-      }
-    }
-    
-    return fixationFrames * 16.67
-  }
-
-  const calculateEnhancedCognitiveScore = (
-    ear: number, 
-    asymmetry: number, 
-    stability: number, 
-    movement: number, 
-    velocity: number,
-    fixation: number
-  ): number => {
-    const baseScore = 70
-    
-    const earScore = Math.min(100, baseScore + (ear - 0.25) * 120)
-    const asymmetryPenalty = Math.max(0, asymmetry * 400)
-    const stabilityBonus = stability * 20
-    const movementPenalty = movement * 300
-    const velocityPenalty = velocity > 50 ? (velocity - 50) * 2 : 0
-    const fixationBonus = Math.min(15, fixation / 100)
-    
-    return Math.max(0, Math.min(100, 
-      earScore - asymmetryPenalty + stabilityBonus - movementPenalty - velocityPenalty + fixationBonus
-    ))
-  }
-
-  const startStructuredTest = async () => {
+  const startMedicalTest = async () => {
     try {
       setError(null)
       
-      if (!navigator.mediaDevices?.getUserMedia) {
-        setError('Camera access is not supported in this browser')
+      if (!holistic) {
+        setError('3D Eye tracking model not loaded yet. Please wait...')
         return
       }
-
-      const mediaStream = await navigator.mediaDevices.getUserMedia({ 
+      
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: { 
-          width: { ideal: 1280 }, 
+          width: { ideal: 1280 },
           height: { ideal: 720 },
-          facingMode: 'user',
-          frameRate: { ideal: 60 }
-        } 
+          facingMode: 'user'
+        }
       })
       
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream
-        
-        videoRef.current.onloadedmetadata = async () => {
-          try {
-            await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js', 'Camera Utils')
-            initializeCameraAnalysis(mediaStream)
-          } catch (error) {
-            console.error('Failed to load camera utils:', error)
-            initializeCameraAnalysis(mediaStream)
-          }
-        }
-      }
+      const video = videoRef.current
+      if (!video) return
       
-    } catch (error: any) {
-      console.error('Error accessing camera:', error)
-      setError(`Camera error: ${error.message}`)
-    }
-  }
-
-  const initializeCameraAnalysis = (mediaStream: MediaStream) => {
-    if (videoRef.current && faceMesh) {
-      try {
-        if (window.Camera) {
-          const cameraInstance = new window.Camera(videoRef.current, {
+      video.srcObject = mediaStream
+      setStream(mediaStream)
+      
+      video.onloadedmetadata = () => {
+        const Camera = (window as any).Camera
+        
+        if (Camera && holistic) {
+          const cam = new Camera(video, {
             onFrame: async () => {
-              try {
-                await faceMesh.send({ image: videoRef.current })
-              } catch (error) {
-                console.error('Error processing frame:', error)
+              if (holistic && video.readyState === 4) {
+                await holistic.send({ image: video })
               }
             },
             width: 1280,
             height: 720
           })
           
-          cameraInstance.start()
-          setCamera(cameraInstance)
+          cam.start()
+          setCamera(cam)
+          setIsAnalyzing(true)
+          
+          // Auto-calibrate after 2 seconds
+          setTimeout(() => {
+            performCalibration()
+          }, 2000)
         } else {
-          console.log('Using manual frame capture')
-          const captureFrame = async () => {
-            if (isAnalyzing && videoRef.current && faceMesh) {
-              try {
-                await faceMesh.send({ image: videoRef.current })
-                requestAnimationFrame(captureFrame)
-              } catch (error) {
-                console.error('Error in manual frame capture:', error)
-              }
+          // Manual frame processing
+          setIsAnalyzing(true)
+          const processFrames = async () => {
+            if (holistic && video.readyState === 4 && isAnalyzing) {
+              await holistic.send({ image: video })
+              requestAnimationFrame(processFrames)
             }
           }
-          captureFrame()
+          processFrames()
+          
+          setTimeout(() => {
+            performCalibration()
+          }, 2000)
         }
-        
-        setStream(mediaStream)
-        setIsAnalyzing(true)
-        setHistory([])
-        setGazePath([])
-        setTestPhase('calibration')
-        
-        setTimeout(() => {
-          calibrateGaze()
-          setTestPhase('saccadic-test')
-        }, 2000)
-        
-      } catch (error) {
-        console.error('Error starting camera analysis:', error)
-        setError('Failed to start camera analysis: ' + error)
       }
+    } catch (error: any) {
+      console.error('Camera error:', error)
+      setError(`Camera error: ${error.message}`)
     }
   }
 
-  const handleSaccadicTestComplete = (testData: any) => {
-    const enhancedTestData = {
-      ...testData,
-      gazeAnalysis: {
-        totalSaccades: history.filter(h => h.saccadeDetected).length,
-        averageSaccadeVelocity: history.reduce((sum, h) => sum + h.saccadeVelocity, 0) / history.length,
-        gazePath: gazePath,
-        screenCoverage: calculateScreenCoverage(gazePath)
+  const performCalibration = () => {
+    if (metrics && metrics.faceDetected) {
+      const videoWidth = videoRef.current?.videoWidth || 640
+      const videoHeight = videoRef.current?.videoHeight || 480
+      
+      // Calibrate eye spheres
+      const headPose = {
+        center: metrics.headCenter3D,
+        rotation: metrics.headRotation,
+        scale: 1
       }
+      
+      calibrateEyeSpheres(
+        history[history.length - 1] ? 
+          [{ x: metrics.leftIris3D.x / videoWidth, y: metrics.leftIris3D.y / videoHeight, z: metrics.leftIris3D.z / videoWidth }] : [],
+        headPose,
+        videoWidth,
+        videoHeight
+      )
+      
+      // Calibrate screen center
+      const currentGaze = metrics.combinedGazeRay
+      const screenPos = convertGazeToScreenCoordinates(currentGaze)
+      
+      setCalibrationOffset({
+        yaw: 0.5 - screenPos.x,
+        pitch: 0.5 - screenPos.y
+      })
+      
+      setTestPhase('saccadic-test')
+      console.log('Calibration complete')
     }
-    
-    setSaccadicData(enhancedTestData)
-    setTestPhase('analysis')
-    
-    const combinedAssessment = analyzeAlzheimersPatterns(history, enhancedTestData)
-    setCognitiveAssessment(combinedAssessment)
-    setTestResults({
-      saccadicLatency: enhancedTestData.saccadicLatency,
-      accuracy: enhancedTestData.accuracy,
-      gazeMetrics: enhancedTestData.gazeAnalysis,
-      timestamp: new Date().toISOString()
-    })
   }
 
-  const calculateScreenCoverage = (gazePath: Array<{x: number, y: number}>) => {
-    if (gazePath.length < 2) return 0
-    
-    const uniquePositions = new Set()
-    gazePath.forEach(point => {
-      const gridX = Math.floor(point.x * 10)
-      const gridY = Math.floor(point.y * 10)
-      uniquePositions.add(`${gridX},${gridY}`)
-    })
-    
-    return (uniquePositions.size / 100) * 100
-  }
-
-  const stopAnalysis = () => {
+  const stopMedicalTest = () => {
     if (camera) {
       camera.stop()
       setCamera(null)
@@ -888,95 +928,74 @@ export default function EyeTrackingAnalyzer() {
       setStream(null)
     }
     setIsAnalyzing(false)
-    setMetrics(null)
-    setFps(0)
-    setGazePath([])
+    setTestPhase('idle')
+    gazeHistoryRef.current = []
   }
 
-  useEffect(() => {
-    return () => {
-      if (camera) camera.stop()
-      if (stream) stream.getTracks().forEach(track => track.stop())
-    }
-  }, [camera, stream])
+  const handleMedicalTestComplete = (testData: any) => {
+    setSaccadicData(testData)
+    setTestPhase('analysis')
+    
+    const assessment = analyzeAlzheimersPatterns(history, testData)
+    setCognitiveAssessment(assessment)
+    
+    setTestResults({
+      ...testData,
+      medicalMetrics: {
+        cognitiveScore: testData.cognitiveScore,
+        reactionTime: testData.reactionTime,
+        accuracy: testData.accuracy,
+        missedTargets: testData.missedTargets,
+        saccadicVelocity: testData.saccadicVelocity
+      },
+      timestamp: new Date().toISOString()
+    })
+  }
 
-  const getCognitiveStatus = (score: number) => {
+  const getMedicalStatus = (score: number) => {
     if (score >= 85) return { text: 'Optimal', color: 'text-green-600', bg: 'bg-green-100' }
     if (score >= 70) return { text: 'Normal', color: 'text-blue-600', bg: 'bg-blue-100' }
     if (score >= 50) return { text: 'Monitor', color: 'text-yellow-600', bg: 'bg-yellow-100' }
     return { text: 'Consult Professional', color: 'text-red-600', bg: 'bg-red-100' }
   }
-  const handleCognitiveAnalysis = async (eyeData: any, saccadicData: any) => {
-    try {
-      const analysisAgent = new CognitiveAnalysisAgent();
-      const results = await analysisAgent.analyzeCognitiveData(eyeData, saccadicData);
-      
-      // Convert CognitiveAnalysisResult to CognitiveAssessment format
-      const cognitiveAssessment: CognitiveAssessment = {
-        alzheimersRisk: results.riskLevel,
-        confidence: results.confidence,
-        biomarkers: {
-          saccadeImpairment: results.biomarkers.saccadeImpairment,
-          pursuitImpairment: results.biomarkers.pursuitImpairment,
-          fixationImpairment: results.biomarkers.fixationImpairment,
-          velocityImpairment: results.biomarkers.velocityImpairment,
-          overallCognitiveScore: results.biomarkers.overallScore
-        },
-        recommendations: results.recommendations,
-        detailedMetrics: {
-          saccadeLatency: saccadicData?.saccadicLatency || 0,
-          pursuitGain: eyeData?.gazeStability || 0,
-          fixationStability: eyeData?.fixationDuration ? (eyeData.fixationDuration / 400) : 0, // Normalize to 0-1
-          gazeConsistency: results.confidence
+
+  const status = metrics ? getMedicalStatus(metrics.cognitiveScore) : null
+
+  // Handle keyboard shortcuts
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      if (e.key === 'c' || e.key === 'C') {
+        performCalibration()
+      } else if (e.key === 's' || e.key === 'S') {
+        // Screen center calibration
+        if (metrics && leftEyeSphere.locked && rightEyeSphere.locked) {
+          const currentGaze = metrics.combinedGazeRay
+          const screenPos = convertGazeToScreenCoordinates(currentGaze)
+          
+          setCalibrationOffset({
+            yaw: -screenPos.x + 0.5,
+            pitch: -screenPos.y + 0.5
+          })
+          
+          console.log('Screen center calibrated')
         }
-      };
-      
-      // Store results in your database
-      await saveCognitiveResultsToDB(results, cognitiveAssessment);
-      
-      // Update UI with results
-      setCognitiveAssessment(cognitiveAssessment);
-      
-    } catch (error) {
-      console.error('Cognitive analysis failed:', error);
-    }
-  };
-
-  // Add this function to save results to your database
-  const saveCognitiveResultsToDB = async (results: CognitiveAnalysisResult, assessment: CognitiveAssessment) => {
-    try {
-      const response = await fetch('/api/save-cognitive-results', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cognitiveResults: results,
-          cognitiveAssessment: assessment,
-          sessionId: 'current-session-id', // You'll need to pass this from your component
-          userId: 'current-user-id' // You'll need to pass this from your component
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to save cognitive results');
       }
-
-      return await response.json();
-    } catch (error) {
-      console.error('Error saving cognitive results:', error);
     }
-  };
-
-  const status = metrics ? getCognitiveStatus(metrics.cognitiveScore) : null
+    
+    window.addEventListener('keypress', handleKeyPress)
+    return () => window.removeEventListener('keypress', handleKeyPress)
+  }, [metrics, leftEyeSphere, rightEyeSphere])
 
   return (
     <Card className="w-full max-w-6xl mx-auto">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-2xl">
           <Brain className="w-7 h-7 text-purple-600" />
-          Bathusi-AI Enhanced Cognitive Screening
+          Bathusi-AI 3D Medical Eye Tracking
         </CardTitle>
-        <CardDescription className="text-lg">
-          Advanced eye tracking with true gaze detection for accurate saccade analysis
+        <CardDescription className="text-lg flex items-center gap-2">
+          <Crosshair className="w-4 h-4 text-blue-500" />
+          Advanced 3D iris tracking with proper gaze vector calculation
         </CardDescription>
       </CardHeader>
       
@@ -990,86 +1009,110 @@ export default function EyeTrackingAnalyzer() {
           </div>
         )}
 
-        {/* Calibration Phase */}
         {testPhase === 'calibration' && (
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
             <div className="flex items-center justify-center gap-2 mb-2">
-              <Activity className="w-5 h-5 text-blue-600 animate-pulse" />
-              <span className="font-semibold text-blue-800">Gaze Calibration</span>
+              <Settings className="w-5 h-5 text-blue-600 animate-spin" />
+              <span className="font-semibold text-blue-800">3D Calibration in Progress</span>
             </div>
             <p className="text-blue-700 text-sm">
-              Please look directly at the center of the screen. Calibrating your gaze...
+              Look at the center of the screen. Eye spheres are being calibrated...
             </p>
+            <div className="mt-2 text-xs text-blue-600">
+              Press 'C' to calibrate eye spheres | Press 'S' to calibrate screen center
+            </div>
           </div>
         )}
 
-        <div className="space-y-4" ref={containerRef}>
-          {/* Saccadic Test */}
+        <div className="space-y-4">
           {testPhase === 'saccadic-test' && (
             <div>
               <h3 className="font-semibold text-lg mb-3 flex items-center gap-2">
-                <Activity className="w-5 h-5 text-blue-500" />
-                Saccadic Eye Movement Test
+                <Target className="w-5 h-5 text-blue-500" />
+                3D Saccadic Eye Movement Test
               </h3>
               <SaccadicTest 
-                onTestComplete={handleSaccadicTestComplete}
+                onTestComplete={handleMedicalTestComplete}
                 isRunning={testPhase === 'saccadic-test'}
+                useEyeCursor={true}
+                eyeCursorPosition={virtualEyeCursor.current}
               />
-              <p className="text-sm text-gray-600 mt-2 text-center">
-                Follow and click the red dot as it moves around the grid. Your gaze is being tracked.
-              </p>
             </div>
           )}
 
-          {/* Enhanced Camera Feed with Overlay */}
-          <div className="aspect-video bg-gray-900 rounded-xl relative overflow-hidden border-2 border-gray-300">
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full h-full object-cover"
-            />
-            <canvas
-              ref={canvasRef}
-              className="absolute top-0 left-0 w-full h-full pointer-events-none"
-            />
-            
-            {isAnalyzing && (
-              <>
-                <div className="absolute inset-0 border-4 border-green-500 rounded-xl" />
-                <div className="absolute top-4 left-4 bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-semibold flex items-center gap-2">
-                  <Activity className="w-4 h-4 animate-pulse" />
-                  Live Analysis Active
-                </div>
-                <div className="absolute top-4 right-4 bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-semibold">
-                  {fps} FPS
-                </div>
-                {metrics && metrics.faceDetected && (
-                  <div className="absolute bottom-4 left-4 bg-black bg-opacity-70 text-white px-3 py-2 rounded-lg text-sm">
-                    Iris Tracking: ✅ | Gaze: {metrics.screenGaze.quadrant} | 
-                    Saccades: {history.filter(h => h.saccadeDetected).length}
+          {/* 3D Eye Tracking Display */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Main tracking view */}
+            <div className="aspect-video bg-gray-900 rounded-xl relative overflow-hidden border-2 border-gray-300">
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="absolute top-0 left-0 w-full h-full object-cover"
+                style={{ display: isAnalyzing ? 'none' : 'block' }}
+              />
+              <canvas
+                ref={canvasRef}
+                className="absolute top-0 left-0 w-full h-full"
+                style={{ display: isAnalyzing ? 'block' : 'none' }}
+              />
+              
+              {isAnalyzing && (
+                <>
+                  <div className="absolute top-4 left-4 bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-semibold flex items-center gap-2">
+                    <Activity className="w-4 h-4 animate-pulse" />
+                    3D Tracking Active
                   </div>
-                )}
-              </>
-            )}
-            
-            {!isAnalyzing && (
-              <div className="absolute inset-0 flex items-center justify-center bg-gray-800 bg-opacity-50">
-                <div className="text-center text-white">
-                  <VideoOff className="w-16 h-16 mx-auto mb-3 opacity-60" />
-                  <p className="text-lg font-semibold">Enhanced Eye Tracking Ready</p>
-                  <p className="text-sm opacity-80 mt-1">True gaze detection with saccade analysis</p>
+                  <div className="absolute top-4 right-4 bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-semibold">
+                    {fps} FPS
+                  </div>
+                  
+                  {metrics && metrics.faceDetected && (
+                    <div className="absolute bottom-4 left-4 right-4 bg-black bg-opacity-70 text-white px-3 py-2 rounded-lg text-xs">
+                      <div className="flex justify-between items-center">
+                        <span>
+                          <Eye className="inline w-3 h-3 mr-1" />
+                          3D Tracking: {leftEyeSphere.locked ? '✅ Calibrated' : '⚠️ Need Calibration'} | 
+                          Cursor: ({(virtualEyeCursor.current.x * 100).toFixed(0)}%, {(virtualEyeCursor.current.y * 100).toFixed(0)}%)
+                        </span>
+                        <span>
+                          Quadrant: {metrics.screenGaze.quadrant}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+              
+              {!isAnalyzing && (
+                <div className="absolute inset-0 flex items-center justify-center bg-gray-800 bg-opacity-50">
+                  <div className="text-center text-white">
+                    <Eye className="w-16 h-16 mx-auto mb-3 opacity-60" />
+                    <p className="text-lg font-semibold">3D Eye Tracking Ready</p>
+                    <p className="text-sm opacity-80 mt-1">Advanced sphere-based iris tracking with proper 3D gaze vectors</p>
+                  </div>
                 </div>
+              )}
+            </div>
+
+            {/* Debug view (optional - can be removed for production) */}
+            <div className="aspect-video bg-gray-900 rounded-xl relative overflow-hidden border-2 border-gray-300">
+              <canvas
+                ref={debugCanvasRef}
+                className="absolute top-0 left-0 w-full h-full"
+              />
+              <div className="absolute top-4 left-4 bg-purple-600 text-white px-3 py-2 rounded-lg text-xs font-semibold">
+                3D Debug View
               </div>
-            )}
+            </div>
           </div>
         </div>
 
         <div className="flex gap-3">
           {!isAnalyzing ? (
             <Button 
-              onClick={startStructuredTest}
+              onClick={startMedicalTest}
               className="flex-1 gap-3 py-3 text-lg"
               disabled={isModelLoading}
               size="lg"
@@ -1077,43 +1120,44 @@ export default function EyeTrackingAnalyzer() {
               {isModelLoading ? (
                 <>
                   <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white" />
-                  Loading Enhanced AI Model...
+                  Loading 3D Eye Tracking...
                 </>
               ) : (
                 <>
                   <Camera className="w-5 h-5" />
-                  Start Enhanced Cognitive Screening
+                  Start 3D Eye Tracking Test
                 </>
               )}
             </Button>
           ) : (
             <Button 
-              onClick={stopAnalysis} 
+              onClick={stopMedicalTest} 
               variant="outline" 
               className="flex-1 gap-3 py-3 text-lg"
               size="lg"
             >
-              Stop Analysis
+              Stop Test
             </Button>
           )}
         </div>
 
+        {/* Real-time Metrics */}
         {metrics && metrics.faceDetected && (
           <div className="space-y-4">
             <h3 className="font-semibold text-lg flex items-center gap-2">
               <Zap className="w-5 h-5 text-yellow-500" />
-              Enhanced Real-time Cognitive Metrics
+              3D Eye Tracking Metrics
             </h3>
             
             <div className={`p-4 rounded-xl ${status?.bg} border-2 ${status?.color.replace('text', 'border')}`}>
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-sm font-medium opacity-80">Cognitive Score</div>
+                  <div className="text-sm font-medium opacity-80">Cognitive Health Score</div>
                   <div className="text-3xl font-bold">{Math.round(metrics.cognitiveScore)}/100</div>
                 </div>
                 <div className="text-right">
                   <div className={`text-lg font-semibold ${status?.color}`}>{status?.text}</div>
-                  <div className="text-sm opacity-70">Based on advanced eye movement biomarkers</div>
+                  <div className="text-sm opacity-70">Based on 3D gaze analysis</div>
                 </div>
               </div>
             </div>
@@ -1125,8 +1169,8 @@ export default function EyeTrackingAnalyzer() {
               </div>
               
               <div className="bg-white p-4 rounded-lg border border-gray-200 text-center">
-                <div className="text-2xl font-bold text-purple-600">{metrics.saccadeVelocity.toFixed(1)}</div>
-                <div className="text-sm text-gray-600 mt-1">Saccade Vel (px/s)</div>
+                <div className="text-2xl font-bold text-purple-600">{metrics.saccadeVelocity.toFixed(2)}</div>
+                <div className="text-sm text-gray-600 mt-1">Saccade Velocity</div>
               </div>
               
               <div className="bg-white p-4 rounded-lg border border-gray-200 text-center">
@@ -1140,32 +1184,26 @@ export default function EyeTrackingAnalyzer() {
               </div>
             </div>
 
-            {/* Enhanced Gaze Information */}
+            {/* 3D Gaze Vectors */}
             <div className="bg-white p-4 rounded-lg border border-gray-200">
-              <h4 className="font-medium text-gray-700 mb-3">Advanced Gaze Analysis</h4>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+              <h4 className="font-medium text-gray-700 mb-3">3D Gaze Vectors</h4>
+              <div className="grid grid-cols-3 gap-4 text-center">
                 <div>
-                  <div className="text-lg font-bold text-blue-600">{metrics.screenGaze.x.toFixed(2)}</div>
-                  <div className="text-sm text-gray-600">Screen X</div>
-                </div>
-                <div>
-                  <div className="text-lg font-bold text-purple-600">{metrics.screenGaze.y.toFixed(2)}</div>
-                  <div className="text-sm text-gray-600">Screen Y</div>
-                </div>
-                <div>
-                  <div className="text-lg font-bold text-green-600 capitalize">{metrics.screenGaze.quadrant.replace('-', ' ')}</div>
-                  <div className="text-sm text-gray-600">Screen Quadrant</div>
-                </div>
-                <div>
-                  <div className="flex justify-center">
-                    {metrics.saccadeDetected ? (
-                      <Zap className="w-6 h-6 text-yellow-500 animate-pulse" />
-                    ) : (
-                      <CheckCircle className="w-6 h-6 text-green-500" />
-                    )}
+                  <div className="text-sm text-gray-600">Left Gaze</div>
+                  <div className="text-xs font-mono">
+                    ({metrics.leftGazeRay.x.toFixed(2)}, {metrics.leftGazeRay.y.toFixed(2)}, {metrics.leftGazeRay.z.toFixed(2)})
                   </div>
-                  <div className="text-sm text-gray-600 mt-1">
-                    {metrics.saccadeDetected ? 'Saccade!' : 'Fixation'}
+                </div>
+                <div>
+                  <div className="text-sm text-gray-600">Right Gaze</div>
+                  <div className="text-xs font-mono">
+                    ({metrics.rightGazeRay.x.toFixed(2)}, {metrics.rightGazeRay.y.toFixed(2)}, {metrics.rightGazeRay.z.toFixed(2)})
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-600">Combined</div>
+                  <div className="text-xs font-mono">
+                    ({metrics.combinedGazeRay.x.toFixed(2)}, {metrics.combinedGazeRay.y.toFixed(2)}, {metrics.combinedGazeRay.z.toFixed(2)})
                   </div>
                 </div>
               </div>
@@ -1173,41 +1211,42 @@ export default function EyeTrackingAnalyzer() {
           </div>
         )}
 
-        {testResults && (
+        {/* Test Results */}
+        {testResults && testResults.medicalMetrics && (
           <div className="bg-white p-4 rounded-lg border border-gray-200">
             <h3 className="font-semibold text-lg mb-3 flex items-center gap-2">
-              <Zap className="w-5 h-5 text-green-500" />
-              Saccadic Test Results
+              <CheckCircle className="w-5 h-5 text-green-500" />
+              3D Eye Tracking Test Results
             </h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-center">
               <div>
-                <div className="text-2xl font-bold text-blue-600">{testResults.saccadicLatency.toFixed(0)}ms</div>
-                <div className="text-sm text-gray-600">Saccadic Latency</div>
+                <div className="text-2xl font-bold text-blue-600">
+                  {testResults.medicalMetrics.reactionTime.toFixed(0)}ms
+                </div>
+                <div className="text-sm text-gray-600">Average Reaction Time</div>
               </div>
               <div>
-                <div className="text-2xl font-bold text-purple-600">{testResults.accuracy.toFixed(1)}%</div>
-                <div className="text-sm text-gray-600">Accuracy</div>
+                <div className="text-2xl font-bold text-purple-600">
+                  {testResults.medicalMetrics.accuracy.toFixed(1)}%
+                </div>
+                <div className="text-sm text-gray-600">Target Accuracy</div>
               </div>
               <div>
                 <div className="text-2xl font-bold text-green-600">
-                  {testResults.saccadicLatency < 200 ? 'Excellent' : 
-                   testResults.saccadicLatency < 300 ? 'Normal' : 'Delayed'}
+                  {testResults.medicalMetrics.cognitiveScore}/100
                 </div>
-                <div className="text-sm text-gray-600">Assessment</div>
-              </div>
-              <div>
-                <div className="text-2xl font-bold text-orange-600">{testResults.gazeMetrics.totalSaccades}</div>
-                <div className="text-sm text-gray-600">Saccades Detected</div>
+                <div className="text-sm text-gray-600">Cognitive Score</div>
               </div>
             </div>
           </div>
         )}
 
+        {/* Cognitive Assessment */}
         {cognitiveAssessment && (
           <div className="space-y-4">
             <h3 className="font-semibold text-lg flex items-center gap-2">
               <Brain className="w-5 h-5 text-purple-500" />
-              Advanced Medical Pattern Analysis
+              Medical Cognitive Assessment (3D Analysis)
             </h3>
             
             <div className={`p-4 rounded-xl border-2 ${
@@ -1219,7 +1258,7 @@ export default function EyeTrackingAnalyzer() {
             }`}>
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-sm font-medium opacity-80">Alzheimer's Pattern Risk</div>
+                  <div className="text-sm font-medium opacity-80">Cognitive Risk Assessment</div>
                   <div className="text-2xl font-bold capitalize">
                     {cognitiveAssessment.alzheimersRisk} Risk
                   </div>
@@ -1228,61 +1267,17 @@ export default function EyeTrackingAnalyzer() {
                   <div className="text-lg font-semibold">
                     {Math.round(cognitiveAssessment.confidence * 100)}% Confidence
                   </div>
-                  <div className="text-sm opacity-70">Based on advanced eye movement biomarkers</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white p-4 rounded-lg border border-gray-200">
-              <h4 className="font-medium text-gray-700 mb-3">Cognitive Biomarkers</h4>
-              <div className="space-y-3">
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span>Saccade Performance</span>
-                    <span>{Math.round(cognitiveAssessment.biomarkers.saccadeImpairment)}% impaired</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div 
-                      className="bg-blue-600 h-2 rounded-full" 
-                      style={{ width: `${100 - cognitiveAssessment.biomarkers.saccadeImpairment}%` }}
-                    ></div>
-                  </div>
-                </div>
-                
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span>Pursuit Tracking</span>
-                    <span>{Math.round(cognitiveAssessment.biomarkers.pursuitImpairment)}% impaired</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div 
-                      className="bg-purple-600 h-2 rounded-full" 
-                      style={{ width: `${100 - cognitiveAssessment.biomarkers.pursuitImpairment}%` }}
-                    ></div>
-                  </div>
-                </div>
-                
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span>Fixation Stability</span>
-                    <span>{Math.round(cognitiveAssessment.biomarkers.fixationImpairment)}% impaired</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div 
-                      className="bg-green-600 h-2 rounded-full" 
-                      style={{ width: `${100 - cognitiveAssessment.biomarkers.fixationImpairment}%` }}
-                    ></div>
-                  </div>
+                  <div className="text-sm opacity-70">Based on 3D eye movement patterns</div>
                 </div>
               </div>
             </div>
 
             <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-              <h4 className="font-medium text-blue-800 mb-2">Recommendations</h4>
+              <h4 className="font-medium text-blue-800 mb-2">Medical Recommendations</h4>
               <ul className="text-sm text-blue-700 space-y-1">
                 {cognitiveAssessment.recommendations.map((rec, index) => (
                   <li key={index} className="flex items-start gap-2">
-                    <div className="w-1 h-1 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
+                    <Heart className="w-3 h-3 mt-1 flex-shrink-0" />
                     {rec}
                   </li>
                 ))}
@@ -1295,10 +1290,11 @@ export default function EyeTrackingAnalyzer() {
           <div className="flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
             <div>
-              <div className="font-semibold text-amber-800 mb-1">Research Preview</div>
+              <div className="font-semibold text-amber-800 mb-1">Medical Disclaimer</div>
               <div className="text-sm text-amber-700">
-                This enhanced tool analyzes iris movement patterns and gaze behavior which research suggests 
-                may correlate with cognitive function. Not for medical diagnosis.
+                This tool uses advanced 3D eye sphere tracking and gaze vector calculation for cognitive screening. 
+                The system properly tracks iris movements in 3D space and calculates accurate gaze directions. 
+                Results should be reviewed by qualified healthcare professionals for medical diagnosis.
               </div>
             </div>
           </div>

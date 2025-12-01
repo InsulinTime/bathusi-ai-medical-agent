@@ -20,6 +20,21 @@ export const SessionChatTable=pgTable('sessionChatTable', {
   type: varchar().default('voice'),
 });
 
+export const BodyAnalysisTable = pgTable("body_analysis", {
+  id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  sessionId: varchar().notNull(),
+  userEmail: varchar().references(() => usersTable.email),
+  selectedParts: json().notNull(),
+  symptoms: text(),
+  severity: varchar(),
+  painLevels: json(),
+  duration: varchar(),
+  structuredAnalysis: json(),
+  rawResponse: text(),
+  urgencyLevel: varchar(),
+  createdAt: timestamp().defaultNow()
+});
+
 export const DoctorConsultationTable = pgTable('doctor_consultation', {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
   consultationId: varchar().notNull().unique(),

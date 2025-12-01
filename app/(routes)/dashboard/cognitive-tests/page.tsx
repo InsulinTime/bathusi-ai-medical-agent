@@ -3,9 +3,10 @@
 import React, { useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Brain, Eye, Mic, Activity, Zap, ArrowRight, CheckCircle, AlertTriangle } from 'lucide-react'
+import { Brain, Eye, Mic, Activity, Zap, ArrowRight, CheckCircle, AlertTriangle, PenTool } from 'lucide-react'
 import EyeTrackingAnalyzer from '../_components/EyeTrackingAnalyzer'
 import MedicalDisclaimer from '@/components/MedicalDisclaimer'
+import HandwritingTest from '../_components/HandwritingTest'
 
 export default function CognitiveTestsPage() {
     const [activeTest, setActiveTest] = useState<string | null>(null)
@@ -20,6 +21,16 @@ export default function CognitiveTestsPage() {
             duration: '3-5 minutes',
             measures: ['Gaze Stability', 'Saccade Patterns', 'Blink Rate', 'Pupil Response'],
             color: 'bg-blue-50 border-blue-200'
+        },
+        {
+            id: 'writing-analysis',
+            name: 'Writing & Drawing Test', // NEW TEST
+            description: 'Evaluate fine motor skills, tremor patterns, and cognitive function through writing and drawing tasks',
+            icon: PenTool,
+            status: 'available',
+            duration: '4-6 minutes',
+            measures: ['Tremor Detection', 'Line Straightness', 'Spatial Awareness', 'Motor Consistency'],
+            color: 'bg-green-50 border-green-200'
         },
         {
             id: 'voice-analysis',
@@ -82,6 +93,92 @@ export default function CognitiveTestsPage() {
                         </p>
                     </div>
                     <EyeTrackingAnalyzer />
+                </div>
+            </div>
+        )
+    }
+
+    if (activeTest === 'writing-analysis') {
+        return (
+            <div className="min-h-screen bg-gradient-to-b from-green-50 to-white p-6">
+                <div className="max-w-6xl mx-auto">
+                    <div className="mb-6">
+                        <Button 
+                            variant="ghost" 
+                            onClick={() => setActiveTest(null)}
+                            className="mb-4"
+                        >
+                            ← Back to Cognitive Tests
+                        </Button>
+                        <h1 className="text-3xl font-bold text-gray-900">Writing & Drawing Analysis</h1>
+                        <p className="text-gray-600 mt-2">
+                            Real-time kinematics analysis of fine motor skills, tremor detection, and movement patterns
+                        </p>
+                    </div>
+                    
+                    {/* Enhanced description section */}
+                    <Card className="mb-6 border-green-200 bg-green-50">
+                        <CardContent className="pt-6">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+                                <div>
+                                    <div className="text-2xl font-bold text-green-600">Real-time</div>
+                                    <div className="text-sm text-green-700">Live Metrics</div>
+                                </div>
+                                <div>
+                                    <div className="text-2xl font-bold text-green-600">Physics-Based</div>
+                                    <div className="text-sm text-green-700">Kinematic Analysis</div>
+                                </div>
+                                <div>
+                                    <div className="text-2xl font-bold text-green-600">Clinical</div>
+                                    <div className="text-sm text-green-700">Tremor Detection</div>
+                                </div>
+                            </div>
+                            <div className="mt-4 text-sm text-green-800">
+                                <strong>How it works:</strong> This test measures velocity, acceleration, and jerk in real-time as you draw. 
+                                Watch the live metrics update like a speedometer while you complete drawing tasks.
+                            </div>
+                        </CardContent>
+                    </Card>
+
+                    <HandwritingTest 
+                        width={800}
+                        height={400}
+                        taskName="spiral-copy"
+                        onAnalysis={(analysis) => {
+                            console.log('Writing analysis completed:', analysis)
+                            //saveToDatabase(analysis);
+                        }} 
+                    />
+
+                    {/* Additional information */}
+                    <Card className="mt-6 border-blue-200">
+                        <CardHeader>
+                            <CardTitle className="text-lg flex items-center gap-2">
+                                <Zap className="w-5 h-5 text-blue-500" />
+                                Understanding the Metrics
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                <div>
+                                    <h4 className="font-semibold text-gray-900 mb-2">Velocity (px/s)</h4>
+                                    <ul className="space-y-1 text-gray-600">
+                                        <li>• Normal range: 100-500 px/s</li>
+                                        <li>• Too slow: Motor slowing</li>
+                                        <li>• Too fast: Impulsivity</li>
+                                    </ul>
+                                </div>
+                                <div>
+                                    <h4 className="font-semibold text-gray-900 mb-2">Jerk (px/s³)</h4>
+                                    <ul className="space-y-1 text-gray-600">
+                                        <li>• Measures movement smoothness</li>
+                                        <li>• High values indicate tremor</li>
+                                        <li>• Normal: &lt; 5000</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
                 </div>
             </div>
         )

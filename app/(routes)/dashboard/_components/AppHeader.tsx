@@ -3,6 +3,7 @@ import { UserButton } from '@clerk/nextjs'
 import Image from 'next/image'
 import Link from 'next/link'
 import React from 'react'
+import NavigationDropdown from './NavigationDropdown'
 
 const menuOptions =[
     {
@@ -39,11 +40,6 @@ const menuOptions =[
         id: 7,
         name: 'Cognitive Tests',
         path: '/dashboard/cognitive-tests'
-    },
-    {
-        id: 8,
-        name: 'Terms & Safety',
-        path: '/terms'
     }
 ] 
 function AppHeader() {
@@ -56,6 +52,7 @@ function AppHeader() {
                         <h2 className='hover:font-semibold cursor-pointer transition-all'>{option.name}</h2>
                     </Link>
                 ))}
+                <NavigationDropdown/>
             </div>
             <UserButton />
         </div>

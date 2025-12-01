@@ -30,7 +30,7 @@ Respond in JSON format exactly as specified.`;
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: "You are a cognitive health analysis assistant. Always respond with valid JSON." },
+        { role: "system", content: "You are a cognitive health analysis assistant. Your should analyse the cognitive test of users and determine whether or not they have any cognitive illnesses (brain injury, alzheimer, etc.) and need treatment from a real medical professional. Always respond with valid JSON." },
         { role: "user", content: analysisPrompt }
       ],
       response_format: { type: "json_object" }
