@@ -292,15 +292,26 @@ const analyzeSymptomsWithAI = async (
       })
     })
     
-    if (!response.ok) throw new Error('Analysis failed')
-    
     const data = await response.json()
+    
+    if (!response.ok) {
+      console.error('API Error Response:', data)
+      throw new Error(data.error || 'Analysis failed')
+    }
+    
+    console.log('Analysis successful:', data)
     return data.analysis || data
   } catch (error) {
-    console.error('AI analysis error:', error)
+    console.error('AI analysis error details:', error)
     return {
-      possibleConditions: [],
-      recommendations: ["Unable to complete analysis. Please try again."]
+      possibleConditions: [{
+        name: "Connection Error",
+        description: "Unable to connect to AI service. Please check your API configuration.",
+        probability: 0,
+        urgency: "low",
+        details: [error instanceof Error ? error.message : "Unknown error"]
+      }],
+      recommendations: ["Please try again or contact support"]
     }
   }
 }

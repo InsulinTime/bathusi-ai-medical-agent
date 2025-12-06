@@ -156,7 +156,7 @@ async function transcribeAudio(audioFile: File): Promise<string> {
     console.log('Using fallback transcription analysis...');
     
     const fallbackResponse = await openai.chat.completions.create({
-      model: "deepseek/deepseek-r1-distill-llama-70b:free",
+      model: "openai/gpt-oss-20b:free",
       messages: [
         {
           role: "system",
@@ -220,7 +220,7 @@ Focus on:
 
   try {
     const completion = await openai.chat.completions.create({
-      model: "deepseek/deepseek-r1-distill-llama-70b:free",
+      model: "openai/gpt-oss-20b:free",
       messages: [
         {
           role: "system",

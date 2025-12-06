@@ -25,13 +25,13 @@ export async function POST(req: NextRequest) {
     ]
 
     console.log('Sending to OpenRouter:', { 
-      model: "deepseek/deepseek-r1-distill-llama-70b:free",
+      model: "x-ai/grok-4.1-fast:free",
       messageCount: messages.length,
       sessionId 
     });
 
     const completion = await openai.chat.completions.create({
-      model: "deepseek/deepseek-r1-distill-llama-70b:free",
+      model: "x-ai/grok-4.1-fast:free",
       messages: messages,
       max_tokens: 1000,
       temperature: 0.7
